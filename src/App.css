@@ -1,0 +1,92 @@
+
+:root {
+  --aim-bg: #0f172a;
+  --aim-bg-card: #ffffff;
+  --aim-text: #111827;
+  --aim-text-light: #f1f5f9;
+  --aim-border: #e5e7eb;
+
+  --aim-primary: #2563eb;
+  --aim-primary-dark: #1e3a8a;
+
+  --aim-input-bg: rgba(15, 23, 42, 0.02);
+  --aim-input-border: #1e3a8a;
+}
+
+/* DARK MODE BASIS */
+.dark {
+  --aim-bg: #020617;
+  --aim-bg-card: #0f172a;
+  --aim-text: #f1f5f9;
+  --aim-text-light: #94a3b8;
+  --aim-border: #1e293b;
+
+  --aim-input-bg: #1e293b;
+  --aim-input-border: #2563eb;
+}
+
+
+/* Globaler Hintergrund-Schimmer für die Seite */
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, #1f2937 0, #020617 50%, #020617 100%);
+}
+
+/* Sorgt dafür, dass Text schön weich wirkt */
+* {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Allgemeine Button-Hover-Effekte */
+button {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease,
+    opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.2);
+}
+
+button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* Inputs etwas hochwertiger machen */
+input[type="number"],
+input[type="text"] {
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    background 0.12s ease,
+    transform 0.08s ease;
+}
+
+/* Fokus: klarer blauer Finance-Glow */
+input[type="number"]:focus,
+input[type="text"]:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+  background-color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* Platzhalter etwas dezenter */
+input::placeholder {
+  color: #9ca3af;
+}
+
+
+/* Kleiner „Glow“-Effekt für die Karte */
+.app-root-card {
+  backdrop-filter: blur(6px);
+}
+
+/* Kleines Branding unten */
+.app-footer {
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
