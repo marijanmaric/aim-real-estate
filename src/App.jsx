@@ -207,6 +207,7 @@ function App() {
   return (
     <div style={pageStyle}>
       <div style={cardStyle} className="app-root-card">
+        <BrandBar />
         {/* Navigation */}
         <nav style={navStyle}>
           <button
@@ -487,6 +488,21 @@ function PortfolioStrip({
     </div>
   );
 }
+function BrandBar() {
+  return (
+    <div style={brandBarStyle}>
+      <div style={brandBarLeftStyle}>
+        <span style={brandDotStyle} />
+        <span style={brandBarTextStyle}>AIM Real Estate</span>
+      </div>
+      <div style={brandBarRightStyle}>
+        <span style={brandEnvStyle}>App</span>
+        <span style={brandBetaStyle}>Beta v0.5</span>
+      </div>
+    </div>
+  );
+}
+
 
 function MainAndList(props) {
   const {
@@ -1390,12 +1406,18 @@ const logoStyle = {
 const titleStyle = {
   fontSize: "1.8rem",
   margin: 0,
-  color: "#111827",
+  fontWeight: 800,
+  backgroundImage:
+    "linear-gradient(120deg, #eff6ff, #60a5fa, #1d4ed8)",
+  WebkitBackgroundClip: "text",
+  color: "transparent",
 };
+
 
 const subtitleStyle = {
   margin: "0.25rem 0 0",
-  color: "#6b7280",
+  color: "#e5e7eb",
+  fontSize: "0.9rem",
 };
 
 const headerRightStyle = {
@@ -1503,6 +1525,75 @@ const buttonRowStyle = {
   flexWrap: "wrap",
   marginTop: "0.5rem",
 };
+const brandBarStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.75rem",
+  padding: "0.4rem 0.75rem",
+  borderRadius: "999px",
+  background:
+    "linear-gradient(120deg, rgba(15,23,42,0.9), rgba(37,99,235,0.7))",
+  marginBottom: "0.9rem",
+  border: "1px solid rgba(148,163,184,0.7)",
+};
+
+const brandBarLeftStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.45rem",
+};
+
+const brandDotStyle = {
+  width: 8,
+  height: 8,
+  borderRadius: "999px",
+  backgroundColor: "#22c55e",
+  boxShadow: "0 0 12px rgba(34,197,94,0.9)",
+};
+
+const brandBarTextStyle = {
+  fontSize: "0.8rem",
+  letterSpacing: "0.16em",
+  textTransform: "uppercase",
+  color: "#e5e7eb",
+};
+
+const brandBarRightStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.4rem",
+};
+
+const brandEnvStyle = {
+  fontSize: "0.75rem",
+  padding: "0.15rem 0.5rem",
+  borderRadius: "999px",
+  backgroundColor: "rgba(15,23,42,0.8)",
+  color: "#e5e7eb",
+  border: "1px solid rgba(148,163,184,0.7)",
+};
+
+const brandBetaStyle = {
+  fontSize: "0.75rem",
+  padding: "0.15rem 0.6rem",
+  borderRadius: "999px",
+  backgroundColor: "rgba(37,99,235,0.2)",
+  color: "#bfdbfe",
+  border: "1px solid rgba(129,140,248,0.9)",
+};
+
+const footerStyle = {
+  marginTop: "1.25rem",
+  textAlign: "center",
+  fontSize: "0.8rem",
+  color: "#9ca3af",
+};
+
+const footerTextStyle = {
+  opacity: 0.9,
+};
+
 
 const primaryButtonStyle = {
   padding: "0.6rem 0.9rem",
