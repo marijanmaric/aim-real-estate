@@ -1204,43 +1204,50 @@ const portfolioStripStyle = {
   gridTemplateColumns: "var(--app-portfolio-columns)",
   gap: "0.75rem",
   marginBottom: "1.25rem",
-  padding: "1rem 1.4rem",
+  padding: "1.35rem 1.9rem",
   borderRadius: "999px",
   position: "relative",
   overflow: "hidden",
-  background: "linear-gradient(135deg, #111827, #1e3a5f 45%, #4f7fee 100%)",
+  background: "linear-gradient(130deg, #10172a, #1f3c78 55%, #5ec9ff 105%)",
   boxShadow: "0 22px 45px rgba(15, 23, 42, 0.5)",
-  border: "1px solid rgba(255, 255, 255, 0.2)",
-  color: "#f8fafc",
+  border: "1px solid rgba(255, 255, 255, 0.18)",
+  color: "#f9fbff",
+  isolation: "isolate",
 };
 
 const portfolioItemStyle = {
   display: "flex",
   flexDirection: "column",
-  gap: "0.2rem",
+  gap: "0.35rem",
   minWidth: 0,
   position: "relative",
+  paddingInline: "0.2rem",
+  maxWidth: "100%",
 };
 
 const portfolioLabelStyle = {
   fontSize: "0.74rem",
   textTransform: "uppercase",
-  letterSpacing: "0.16em",
-  fontWeight: 600,
-  color: "rgba(241, 245, 249, 0.9)",
+  letterSpacing: "0.14em",
+  fontWeight: 700,
+  color: "rgba(248, 250, 252, 0.95)",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const portfolioValueStyle = {
-  fontSize: "1.15rem",
-  fontWeight: 700,
+  fontSize: "1.25rem",
+  fontWeight: 800,
   color: "#ffffff",
-  textShadow: "0 6px 20px rgba(15, 23, 42, 0.55)",
+  textShadow: "0 7px 26px rgba(7, 10, 22, 0.7)",
 };
 
 const portfolioSubLabelStyle = {
   fontSize: "0.8rem",
-  color: "rgba(226, 232, 240, 0.88)",
-  opacity: 0.95,
+  color: "rgba(239, 246, 255, 0.92)",
+  opacity: 1,
+  lineHeight: 1.2,
 };
 
 const cardStyle = {
