@@ -1201,11 +1201,11 @@ const pageStyle = {
 
 const portfolioStripStyle = {
   display: "grid",
-  gridTemplateColumns: "var(--app-portfolio-columns)",
+  gridTemplateColumns: "var(--portfolio-grid-columns)",
   gap: "0.75rem",
   marginBottom: "1.25rem",
-  padding: "1.35rem 1.9rem",
-  borderRadius: "999px",
+  padding: "var(--portfolio-padding)",
+  borderRadius: "var(--portfolio-radius)",
   position: "relative",
   overflow: "hidden",
   background: "linear-gradient(130deg, #10172a, #1f3c78 55%, #5ec9ff 105%)",
@@ -1221,19 +1221,19 @@ const portfolioItemStyle = {
   gap: "0.35rem",
   minWidth: 0,
   position: "relative",
-  paddingInline: "0.2rem",
+  paddingInline: "0.35rem",
   maxWidth: "100%",
 };
 
 const portfolioLabelStyle = {
-  fontSize: "0.74rem",
+  fontSize: "0.72rem",
   textTransform: "uppercase",
-  letterSpacing: "0.14em",
+  letterSpacing: "0.1em",
   fontWeight: 700,
   color: "rgba(248, 250, 252, 0.95)",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+  whiteSpace: "normal",
+  wordBreak: "break-word",
+  lineHeight: 1.15,
 };
 
 const portfolioValueStyle = {

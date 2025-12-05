@@ -16,6 +16,9 @@
   --app-main-grid-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   --app-portfolio-columns: repeat(auto-fit, minmax(200px, 1fr));
   --nav-button-flex: 0 0 auto;
+  --portfolio-grid-columns: repeat(auto-fit, minmax(230px, 1fr));
+  --portfolio-padding: 1.45rem 2.3rem;
+  --portfolio-radius: 999px;
 }
 
 /* DARK MODE BASIS */
@@ -133,6 +136,8 @@ input::placeholder {
 @media (max-width: 900px) {
   :root {
     --app-main-grid-columns: 1fr;
+    --portfolio-grid-columns: repeat(auto-fit, minmax(190px, 1fr));
+    --portfolio-padding: 1.2rem 1.6rem;
   }
 }
 
@@ -142,9 +147,12 @@ input::placeholder {
     --app-card-padding: 1.25rem;
     --app-portfolio-columns: 1fr;
     --nav-button-flex: 1 1 calc(50% - 0.4rem);
+    --portfolio-grid-columns: 1fr;
+    --portfolio-padding: 1.1rem 1.2rem;
+    --portfolio-radius: 36px;
   }
 
   .portfolio-strip {
-    border-radius: 24px;
+    border-radius: var(--portfolio-radius);
   }
 }
