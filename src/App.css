@@ -39,7 +39,23 @@ body {
 
 /* Sorgt dafür, dass Text schön weich wirkt */
 * {
+  box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: transparent;
 }
 
 /* Allgemeine Button-Hover-Effekte */

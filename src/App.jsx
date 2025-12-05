@@ -529,7 +529,7 @@ function MainAndList({
                 id="propertyType"
                 value={propertyType}
                 onChange={(e) => onFormChange("propertyType", e.target.value)}
-                style={inputStyle}
+                style={selectStyle}
               >
                 <option value="wohnung">Wohnung</option>
                 <option value="haus">Haus</option>
@@ -546,7 +546,7 @@ function MainAndList({
                 id="strategy"
                 value={strategy}
                 onChange={(e) => onFormChange("strategy", e.target.value)}
-                style={inputStyle}
+                style={selectStyle}
               >
                 <option value="buy_and_hold">Buy &amp; Hold</option>
                 <option value="flip">Fix &amp; Flip</option>
@@ -1183,6 +1183,10 @@ function Td({ children, style }) {
   return <td style={{ ...tdStyle, ...style }}>{children}</td>;
 }
 
+const selectArrowSvg = encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 9l6 6 6-6'/></svg>"
+);
+
 const pageStyle = {
   minHeight: "100vh",
   margin: 0,
@@ -1393,9 +1397,19 @@ const inputStyle = {
   border: "1px solid var(--aim-input-border)",
   backgroundColor: "var(--aim-input-bg)",
   fontSize: "0.95rem",
+  lineHeight: "1.2",
   outline: "none",
   boxSizing: "border-box",
   color: "var(--aim-text)",
+};
+
+const selectStyle = {
+  ...inputStyle,
+  paddingRight: "2.4rem",
+  backgroundImage: `url("data:image/svg+xml,${selectArrowSvg}")`,
+  backgroundRepeat: "no-repeat",
+  backgroundPosition: "right 0.9rem center",
+  backgroundSize: "0.75rem auto",
 };
 
 const buttonRowStyle = {
