@@ -11,6 +11,11 @@
 
   --aim-input-bg: rgba(15, 23, 42, 0.02);
   --aim-input-border: #1e3a8a;
+  --app-page-padding: 2rem;
+  --app-card-padding: 2rem 2.5rem;
+  --app-main-grid-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  --app-portfolio-columns: repeat(auto-fit, minmax(200px, 1fr));
+  --nav-button-flex: 0 0 auto;
 }
 
 /* DARK MODE BASIS */
@@ -41,6 +46,11 @@ body {
 button {
   transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease,
     opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--aim-primary);
+  outline-offset: 2px;
 }
 
 button:hover {
@@ -83,10 +93,21 @@ input::placeholder {
   backdrop-filter: blur(6px);
 }
 
-/* Kleines Branding unten */
-.app-footer {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.75rem;
-  color: #9ca3af;
+@media (max-width: 900px) {
+  :root {
+    --app-main-grid-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --app-page-padding: 1rem;
+    --app-card-padding: 1.25rem;
+    --app-portfolio-columns: 1fr;
+    --nav-button-flex: 1 1 calc(50% - 0.4rem);
+  }
+
+  .portfolio-strip {
+    border-radius: 24px;
+  }
 }

@@ -1,28 +1,31 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import aimLogo from "./assets/aim-logo.svg";
 
-
 const STORAGE_KEY = "brickplan-properties-v1";
 
-function App() {
-  // Eingabefelder
-  const [title, setTitle] = useState("");
-  const [purchasePrice, setPurchasePrice] = useState("");
-  const [equity, setEquity] = useState("");
-  const [rent, setRent] = useState("");
-  const [expenses, setExpenses] = useState("");
-  const [interestRate, setInterestRate] = useState("");
-  const [loanYears, setLoanYears] = useState("");
-  const [brokerPercent, setBrokerPercent] = useState("3"); // Maklerprovision in %
-  const [otherCostsPercent, setOtherCostsPercent] = useState("4.5"); // sonstige Nebenkosten in %
-  const [propertyType, setPropertyType] = useState("wohnung");      // wohnung, haus, sanierung, gewerbe
-  const [strategy, setStrategy] = useState("buy_and_hold");         // buy_and_hold, flip, eigennutzung
+const initialFormState = {
+  title: "",
+  purchasePrice: "",
+  equity: "",
+  rent: "",
+  expenses: "",
+  interestRate: "",
+  loanYears: "",
+  brokerPercent: "3",
+  otherCostsPercent: "4.5",
+  propertyType: "wohnung",
+  strategy: "buy_and_hold",
+};
 
-  // Liste aller Immobilien – beim ersten Render aus localStorage laden
+function App() {
+  const [formData, setFormData] = useState(initialFormState);
   const [properties, setProperties] = useState(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
@@ -30,17 +33,35 @@ function App() {
       return [];
     }
   });
-
-  // Ergebnisse der aktuellen Berechnung
   const [results, setResults] = useState(null);
-
-  // Ausgewählte Immobilie für Detailansicht
   const [selectedProperty, setSelectedProperty] = useState(null);
-
-  // Aktiver Tab
   const [activeTab, setActiveTab] = useState("overview");
 
-  function handleCalculate() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (properties.length === 0) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(properties));
+  }, [properties]);
+
+  const handleFormChange = useCallback((field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleCalculate = useCallback(() => {
+    const {
+      purchasePrice,
+      equity,
+      rent,
+      expenses,
+      interestRate,
+      loanYears,
+      brokerPercent,
+      otherCostsPercent,
+    } = formData;
+
     const p = Number(purchasePrice) || 0;
     const e = Number(equity) || 0;
     const r = Number(rent) || 0;
@@ -57,13 +78,11 @@ function App() {
     let monthlyLoanPayment = 0;
     if (loanAmount > 0 && monthlyInterest > 0 && totalMonths > 0) {
       const pow = Math.pow(1 + monthlyInterest, totalMonths);
-      monthlyLoanPayment =
-        (loanAmount * monthlyInterest * pow) / (pow - 1);
+      monthlyLoanPayment = (loanAmount * monthlyInterest * pow) / (pow - 1);
     } else if (loanAmount > 0 && monthlyInterest === 0 && totalMonths > 0) {
       monthlyLoanPayment = loanAmount / totalMonths;
     }
 
-    // 🔹 Kaufnebenkosten
     const brokerFee = (p * brokerP) / 100;
     const otherBuyingCosts = (p * otherP) / 100;
     const totalPurchaseCosts = brokerFee + otherBuyingCosts;
@@ -71,8 +90,6 @@ function App() {
 
     const monthlyCashflow = r - ex - monthlyLoanPayment;
     const yearlyRent = r * 12;
-
-    // Bruttorendite jetzt auf Gesamtinvestition bezogen (KP + Nebenkosten)
     const grossBase = totalInvestment > 0 ? totalInvestment : p;
     const grossYield = grossBase > 0 ? (yearlyRent / grossBase) * 100 : 0;
 
@@ -90,65 +107,52 @@ function App() {
       totalPurchaseCosts,
       totalInvestment,
     });
-  }
+  }, [formData]);
 
-  function handleAddToList() {
+  const handleAddToList = useCallback(() => {
     if (!results) {
       alert("Bitte zuerst auf „Berechnen“ klicken.");
       return;
     }
-    if (!title.trim()) {
+    if (!formData.title.trim()) {
       alert("Bitte gib einen Namen für die Immobilie ein.");
       return;
     }
 
-      const newProperty = {
+    const newProperty = {
       id: Date.now(),
-      title: title.trim(),
-      propertyType,            // neu
-      strategy,                // neu
-      purchasePrice: Number(purchasePrice) || 0,
-      equity: Number(equity) || 0,
-      rent: Number(rent) || 0,
-      expenses: Number(expenses) || 0,
-      interestRate: Number(interestRate) || 0,
-      loanYears: Number(loanYears) || 0,
-      brokerPercent: Number(brokerPercent) || 0,
-      otherCostsPercent: Number(otherCostsPercent) || 0,
+      title: formData.title.trim(),
+      propertyType: formData.propertyType,
+      strategy: formData.strategy,
+      purchasePrice: Number(formData.purchasePrice) || 0,
+      equity: Number(formData.equity) || 0,
+      rent: Number(formData.rent) || 0,
+      expenses: Number(formData.expenses) || 0,
+      interestRate: Number(formData.interestRate) || 0,
+      loanYears: Number(formData.loanYears) || 0,
+      brokerPercent: Number(formData.brokerPercent) || 0,
+      otherCostsPercent: Number(formData.otherCostsPercent) || 0,
       ...results,
     };
 
+    setProperties((prev) => [...prev, newProperty]);
+  }, [formData, results]);
 
-    setProperties((prev) => {
-      const updated = [...prev, newProperty];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
-  }
+  const handleDelete = useCallback((id) => {
+    setProperties((prev) => prev.filter((p) => p.id !== id));
+    setSelectedProperty((prev) => (prev && prev.id === id ? null : prev));
+  }, []);
 
-  function handleDelete(id) {
-    setProperties((prev) => {
-      const updated = prev.filter((p) => p.id !== id);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      return updated;
-    });
-
-    if (selectedProperty && selectedProperty.id === id) {
-      setSelectedProperty(null);
-    }
-  }
-
-  function handleClearAll() {
+  const handleClearAll = useCallback(() => {
     const sure = window.confirm(
       "Wirklich alle gespeicherten Immobilien löschen?"
     );
     if (!sure) return;
     setProperties([]);
     setSelectedProperty(null);
-    localStorage.removeItem(STORAGE_KEY);
-  }
+  }, []);
 
-    function handleExportJson() {
+  const handleExportJson = useCallback(() => {
     if (properties.length === 0) {
       alert("Es gibt aktuell keine Immobilien zu exportieren.");
       return;
@@ -164,125 +168,149 @@ function App() {
     a.click();
 
     URL.revokeObjectURL(url);
-  }
+  }, [properties]);
 
+  const {
+    totalCashflow,
+    avgGrossYield,
+    avgEquityReturn,
+    propertiesCount,
+  } = useMemo(() => {
+    if (properties.length === 0) {
+      return {
+        totalCashflow: 0,
+        avgGrossYield: 0,
+        avgEquityReturn: 0,
+        propertiesCount: 0,
+      };
+    }
 
-  // Gesamtübersicht
-  const totalCashflow = properties.reduce(
-    (sum, p) => sum + p.monthlyCashflow,
-    0
-  );
-  const avgGrossYield =
-    properties.length > 0
-      ? properties.reduce((sum, p) => sum + p.grossYield, 0) /
-        properties.length
-      : 0;
-  const avgEquityReturn =
-    properties.length > 0
-      ? properties.reduce((sum, p) => sum + p.equityReturn, 0) /
-        properties.length
-      : 0;
-        const propertiesCount = properties.length;
+    const totals = properties.reduce(
+      (acc, p) => {
+        acc.cashflow += p.monthlyCashflow;
+        acc.gross += p.grossYield;
+        acc.equity += p.equityReturn;
+        return acc;
+      },
+      { cashflow: 0, gross: 0, equity: 0 }
+    );
 
+    return {
+      totalCashflow: totals.cashflow,
+      avgGrossYield: totals.gross / properties.length,
+      avgEquityReturn: totals.equity / properties.length,
+      propertiesCount: properties.length,
+    };
+  }, [properties]);
 
-  // Beste Immobilien für Analysen
-  const bestByEquity =
-    properties.length > 0
-      ? properties.reduce(
-          (best, p) =>
-            !best || p.equityReturn > best.equityReturn ? p : best,
-          null
-        )
-      : null;
+  const { bestByEquity, bestByCashflow } = useMemo(() => {
+    if (properties.length === 0) {
+      return { bestByEquity: null, bestByCashflow: null };
+    }
 
-  const bestByCashflow =
-    properties.length > 0
-      ? properties.reduce(
-          (best, p) =>
-            !best || p.monthlyCashflow > best.monthlyCashflow ? p : best,
-          null
-        )
-      : null;
+    const bestEquity = properties.reduce(
+      (best, p) => (!best || p.equityReturn > best.equityReturn ? p : best),
+      null
+    );
+    const bestCashflow = properties.reduce(
+      (best, p) => (!best || p.monthlyCashflow > best.monthlyCashflow ? p : best),
+      null
+    );
+    return { bestByEquity: bestEquity, bestByCashflow: bestCashflow };
+  }, [properties]);
+
+  const analyticsData = useMemo(() => {
+    if (properties.length === 0) {
+      return {
+        sortedByEquity: [],
+        sortedByCashflow: [],
+        maxEquityReturn: 0,
+        maxAbsCashflow: 0,
+      };
+    }
+
+    const sortedByEquity = [...properties].sort(
+      (a, b) => b.equityReturn - a.equityReturn
+    );
+    const sortedByCashflow = [...properties].sort(
+      (a, b) => b.monthlyCashflow - a.monthlyCashflow
+    );
+
+    const maxEquityReturn = sortedByEquity.reduce(
+      (max, p) => (p.equityReturn > max ? p.equityReturn : max),
+      0
+    );
+    const maxAbsCashflow = sortedByCashflow.reduce((max, p) => {
+      const v = Math.abs(p.monthlyCashflow);
+      return v > max ? v : max;
+    }, 0);
+
+    return { sortedByEquity, sortedByCashflow, maxEquityReturn, maxAbsCashflow };
+  }, [properties]);
 
   return (
-    <div style={pageStyle}>
+    <div style={pageStyle} className="app-page">
       <div style={cardStyle} className="app-root-card">
         <BrandBar />
-        {/* Navigation */}
-        <nav style={navStyle}>
+        <nav style={navStyle} className="app-nav">
           <button
-            style={
-              activeTab === "overview"
-                ? navButtonActiveStyle
-                : navButtonStyle
-            }
+            type="button"
+            style={activeTab === "overview" ? navButtonActiveStyle : navButtonStyle}
             onClick={() => setActiveTab("overview")}
           >
             Dashboard
           </button>
           <button
-            style={
-              activeTab === "properties"
-                ? navButtonActiveStyle
-                : navButtonStyle
-            }
+            type="button"
+            style={activeTab === "properties" ? navButtonActiveStyle : navButtonStyle}
             onClick={() => setActiveTab("properties")}
           >
             Immobilien
           </button>
           <button
-            style={
-              activeTab === "analytics"
-                ? navButtonActiveStyle
-                : navButtonStyle
-            }
+            type="button"
+            style={activeTab === "analytics" ? navButtonActiveStyle : navButtonStyle}
             onClick={() => setActiveTab("analytics")}
           >
             Analysen
           </button>
           <button
-            style={
-              activeTab === "settings"
-                ? navButtonActiveStyle
-                : navButtonStyle
-            }
+            type="button"
+            style={activeTab === "settings" ? navButtonActiveStyle : navButtonStyle}
             onClick={() => setActiveTab("settings")}
           >
             Einstellungen
           </button>
         </nav>
-          {/* Portfolio-Leiste */}
+
         <PortfolioStrip
           propertiesCount={propertiesCount}
           totalCashflow={totalCashflow}
           avgGrossYield={avgGrossYield}
           avgEquityReturn={avgEquityReturn}
         />
-        {/* Header */}
+
         <header style={headerStyle}>
-          {/* Linke Seite: Logo + Titel */}
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-  <img
-    src={aimLogo}
-    alt="AIM Real Estate Logo"
-    style={{
-      width: 44,
-      height: 44,
-      borderRadius: "12px",
-      boxShadow: "0 10px 22px rgba(15, 23, 42, 0.55)",
-      flexShrink: 0,
-    }}
-  />
-  <div>
-    <h1 style={titleStyle}>AIM Real Estate</h1>
-    <p style={subtitleStyle}>
-      Präzise Analyse für smarte Immobilien-Investments.
-    </p>
-  </div>
-</div>
+            <img
+              src={aimLogo}
+              alt="AIM Real Estate Logo"
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "12px",
+                boxShadow: "0 10px 22px rgba(15, 23, 42, 0.55)",
+                flexShrink: 0,
+              }}
+            />
+            <div>
+              <h1 style={titleStyle}>AIM Real Estate</h1>
+              <p style={subtitleStyle}>
+                Präzise Analyse für smarte Immobilien-Investments.
+              </p>
+            </div>
+          </div>
 
-
-          {/* Rechte Seite */}
           <div style={headerRightStyle}>
             <div style={{ textAlign: "right", marginRight: "0.5rem" }}>
               <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Firma</div>
@@ -291,135 +319,82 @@ function App() {
               </div>
             </div>
             <span style={badgeStyle}>MVP · v0.5</span>
-            <button onClick={handleClearAll} style={linkButtonStyle}>
+            <button type="button" onClick={handleClearAll} style={linkButtonStyle}>
               Alles löschen
             </button>
           </div>
         </header>
 
-        {/* Inhalte je nach Tab */}
-
-        {/* Dashboard: alles */}
         {activeTab === "overview" && (
           <>
             <OverviewSection
-              properties={properties}
+              propertiesCount={propertiesCount}
               totalCashflow={totalCashflow}
               avgGrossYield={avgGrossYield}
               avgEquityReturn={avgEquityReturn}
             />
             <MainAndList
-              title={title}
-              setTitle={setTitle}
-              purchasePrice={purchasePrice}
-              setPurchasePrice={setPurchasePrice}
-              equity={equity}
-              setEquity={setEquity}
-              rent={rent}
-              setRent={setRent}
-              expenses={expenses}
-              setExpenses={setExpenses}
-              interestRate={interestRate}
-              setInterestRate={setInterestRate}
-              loanYears={loanYears}
-              setLoanYears={setLoanYears}
-              brokerPercent={brokerPercent}
-              setBrokerPercent={setBrokerPercent}
-              otherCostsPercent={otherCostsPercent}
-              setOtherCostsPercent={setOtherCostsPercent}
-              handleCalculate={handleCalculate}
-              handleAddToList={handleAddToList}
+              formData={formData}
+              onFormChange={handleFormChange}
+              onCalculate={handleCalculate}
+              onAddToList={handleAddToList}
               results={results}
               properties={properties}
-              handleDelete={handleDelete}
+              onDelete={handleDelete}
               selectedProperty={selectedProperty}
-              setSelectedProperty={setSelectedProperty}
-              propertyType={propertyType}
-              setPropertyType={setPropertyType}
-              strategy={strategy}
-              setStrategy={setStrategy}
-
+              onSelectProperty={setSelectedProperty}
             />
           </>
         )}
 
-        {/* Immobilien: nur Formular + Liste */}
         {activeTab === "properties" && (
           <MainAndList
-            title={title}
-            setTitle={setTitle}
-            purchasePrice={purchasePrice}
-            setPurchasePrice={setPurchasePrice}
-            equity={equity}
-            setEquity={setEquity}
-            rent={rent}
-            setRent={setRent}
-            expenses={expenses}
-            setExpenses={setExpenses}
-            interestRate={interestRate}
-            setInterestRate={setInterestRate}
-            loanYears={loanYears}
-            setLoanYears={setLoanYears}
-            brokerPercent={brokerPercent}
-            setBrokerPercent={setBrokerPercent}
-            otherCostsPercent={otherCostsPercent}
-            setOtherCostsPercent={setOtherCostsPercent}
-            handleCalculate={handleCalculate}
-            handleAddToList={handleAddToList}
+            formData={formData}
+            onFormChange={handleFormChange}
+            onCalculate={handleCalculate}
+            onAddToList={handleAddToList}
             results={results}
             properties={properties}
-            handleDelete={handleDelete}
+            onDelete={handleDelete}
             selectedProperty={selectedProperty}
-            setSelectedProperty={setSelectedProperty}
-              propertyType={propertyType}
-              setPropertyType={setPropertyType}
-              strategy={strategy}
-              setStrategy={setStrategy}
-
+            onSelectProperty={setSelectedProperty}
           />
-
         )}
 
-        {/* Analysen */}
         {activeTab === "analytics" && (
           <AnalyticsSection
-            properties={properties}
             bestByEquity={bestByEquity}
             bestByCashflow={bestByCashflow}
+            analyticsData={analyticsData}
+            propertiesCount={propertiesCount}
           />
         )}
 
-                {/* Einstellungen */}
         {activeTab === "settings" && (
           <SettingsSection onExportJson={handleExportJson} />
         )}
-
       </div>
     </div>
   );
 }
 
-/* ====== Unterkomponenten ====== */
-
 function OverviewSection({
-  properties,
+  propertiesCount,
   totalCashflow,
   avgGrossYield,
   avgEquityReturn,
 }) {
+  const hasProperties = propertiesCount > 0;
   return (
     <section style={{ marginBottom: "1.5rem" }}>
       <h2 style={sectionTitleStyle}>Gesamtübersicht</h2>
-      <div style={summaryGridStyle}>
-        <SummaryCard
-          label="Anzahl Immobilien"
-          value={properties.length.toString()}
-        />
+      <div style={summaryGridStyle} className="summary-grid">
+        <SummaryCard label="Anzahl Immobilien" value={propertiesCount.toString()} />
         <SummaryCard
           label="Gesamt-Cashflow / Monat"
           value={`${totalCashflow.toFixed(2)} €`}
           highlight={
-            properties.length === 0
+            !hasProperties
               ? "neutral"
               : totalCashflow >= 0
               ? "green"
@@ -428,24 +403,17 @@ function OverviewSection({
         />
         <SummaryCard
           label="Ø Bruttorendite"
-          value={
-            properties.length === 0
-              ? "—"
-              : `${avgGrossYield.toFixed(2)} %`
-          }
+          value={hasProperties ? `${avgGrossYield.toFixed(2)} %` : "—"}
         />
         <SummaryCard
           label="Ø EK-Rendite"
-          value={
-            properties.length === 0
-              ? "—"
-              : `${avgEquityReturn.toFixed(2)} %`
-          }
+          value={hasProperties ? `${avgEquityReturn.toFixed(2)} %` : "—"}
         />
       </div>
     </section>
   );
 }
+
 function PortfolioStrip({
   propertiesCount,
   totalCashflow,
@@ -453,7 +421,7 @@ function PortfolioStrip({
   avgEquityReturn,
 }) {
   return (
-    <div style={portfolioStripStyle}>
+    <div style={portfolioStripStyle} className="portfolio-strip">
       <div style={portfolioItemStyle}>
         <div style={portfolioLabelStyle}>Immobilien im Portfolio</div>
         <div style={portfolioValueStyle}>{propertiesCount}</div>
@@ -465,8 +433,7 @@ function PortfolioStrip({
         <div
           style={{
             ...portfolioValueStyle,
-            color:
-              totalCashflow >= 0 ? "#22c55e" : "#f97373",
+            color: totalCashflow >= 0 ? "#22c55e" : "#f97373",
           }}
         >
           {totalCashflow.toFixed(2)} €
@@ -479,15 +446,22 @@ function PortfolioStrip({
       <div style={portfolioItemStyle}>
         <div style={portfolioLabelStyle}>Ø EK-Rendite</div>
         <div style={portfolioValueStyle}>
-          {propertiesCount === 0
-            ? "—"
-            : `${avgEquityReturn.toFixed(2)} %`}
+          {propertiesCount === 0 ? "—" : `${avgEquityReturn.toFixed(2)} %`}
         </div>
         <div style={portfolioSubLabelStyle}>Basierend auf allen Deals</div>
+      </div>
+
+      <div style={portfolioItemStyle}>
+        <div style={portfolioLabelStyle}>Ø Bruttorendite</div>
+        <div style={portfolioValueStyle}>
+          {propertiesCount === 0 ? "—" : `${avgGrossYield.toFixed(2)} %`}
+        </div>
+        <div style={portfolioSubLabelStyle}>KP inkl. Nebenkosten</div>
       </div>
     </div>
   );
 }
+
 function BrandBar() {
   return (
     <div style={brandBarStyle}>
@@ -503,64 +477,58 @@ function BrandBar() {
   );
 }
 
-
-function MainAndList(props) {
+function MainAndList({
+  formData,
+  onFormChange,
+  onCalculate,
+  onAddToList,
+  results,
+  properties,
+  onDelete,
+  selectedProperty,
+  onSelectProperty,
+}) {
   const {
     title,
-    setTitle,
-    purchasePrice,
-    setPurchasePrice,
-    equity,
-    setEquity,
-    rent,
-    setRent,
-    expenses,
-    setExpenses,
-    interestRate,
-    setInterestRate,
-    loanYears,
-    setLoanYears,
-    brokerPercent,
-    setBrokerPercent,
-    otherCostsPercent,
-    setOtherCostsPercent,
-    handleCalculate,
-    handleAddToList,
-    results,
-    properties,
-    handleDelete,
-    selectedProperty,
-    setSelectedProperty,
     propertyType,
-    setPropertyType,
     strategy,
-    setStrategy,
-
-  } = props;
+    purchasePrice,
+    equity,
+    rent,
+    expenses,
+    interestRate,
+    loanYears,
+    brokerPercent,
+    otherCostsPercent,
+  } = formData;
 
   return (
     <>
-      {/* Hauptbereich: Formular + Ergebnisse */}
-      <div style={mainGridStyle}>
-        {/* Formular */}
+      <div style={mainGridStyle} className="main-grid">
         <section style={formCardStyle}>
           <h2 style={sectionTitleStyle}>Immobilie anlegen</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div>
-              <label style={labelStyle}>Name der Immobilie</label>
+              <label style={labelStyle} htmlFor="title-input">
+                Name der Immobilie
+              </label>
               <input
+                id="title-input"
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => onFormChange("title", e.target.value)}
                 placeholder="z.B. Wohnung Ottakring 72m²"
                 style={inputStyle}
               />
             </div>
-                        <div>
-              <label style={labelStyle}>Immobilienart</label>
+            <div>
+              <label style={labelStyle} htmlFor="propertyType">
+                Immobilienart
+              </label>
               <select
+                id="propertyType"
                 value={propertyType}
-                onChange={(e) => setPropertyType(e.target.value)}
+                onChange={(e) => onFormChange("propertyType", e.target.value)}
                 style={inputStyle}
               >
                 <option value="wohnung">Wohnung</option>
@@ -571,10 +539,13 @@ function MainAndList(props) {
             </div>
 
             <div>
-              <label style={labelStyle}>Strategie</label>
+              <label style={labelStyle} htmlFor="strategy">
+                Strategie
+              </label>
               <select
+                id="strategy"
                 value={strategy}
-                onChange={(e) => setStrategy(e.target.value)}
+                onChange={(e) => onFormChange("strategy", e.target.value)}
                 style={inputStyle}
               >
                 <option value="buy_and_hold">Buy &amp; Hold</option>
@@ -584,63 +555,70 @@ function MainAndList(props) {
             </div>
 
             <Field
+              name="purchasePrice"
               label="Kaufpreis (€)"
               placeholder="z.B. 250000"
               value={purchasePrice}
-              onChange={(e) => setPurchasePrice(e.target.value)}
+              onChange={onFormChange}
             />
             <Field
+              name="equity"
               label="Eigenkapital (€)"
               placeholder="z.B. 50000"
               value={equity}
-              onChange={(e) => setEquity(e.target.value)}
+              onChange={onFormChange}
             />
             <Field
+              name="rent"
               label="Mieteinnahmen pro Monat (€)"
               placeholder="z.B. 900"
               value={rent}
-              onChange={(e) => setRent(e.target.value)}
+              onChange={onFormChange}
             />
             <Field
+              name="expenses"
               label="Monatliche Kosten (€)"
               placeholder="z.B. 350"
               value={expenses}
-              onChange={(e) => setExpenses(e.target.value)}
+              onChange={onFormChange}
             />
             <Field
+              name="interestRate"
               label="Zinssatz p.a. (%)"
               placeholder="z.B. 4"
               value={interestRate}
-              onChange={(e) => setInterestRate(e.target.value)}
+              onChange={onFormChange}
             />
             <Field
+              name="loanYears"
               label="Laufzeit (Jahre)"
               placeholder="z.B. 30"
               value={loanYears}
-              onChange={(e) => setLoanYears(e.target.value)}
+              onChange={onFormChange}
             />
-
             <Field
+              name="brokerPercent"
               label="Maklerprovision (%)"
               placeholder="z.B. 3"
               value={brokerPercent}
-              onChange={(e) => setBrokerPercent(e.target.value)}
+              onChange={onFormChange}
             />
             <Field
+              name="otherCostsPercent"
               label="Sonstige Kaufnebenkosten (%)"
               placeholder="z.B. 4.5"
               value={otherCostsPercent}
-              onChange={(e) => setOtherCostsPercent(e.target.value)}
+              onChange={onFormChange}
             />
 
-            <div style={buttonRowStyle}>
-              <button style={primaryButtonStyle} onClick={handleCalculate}>
+            <div style={buttonRowStyle} className="button-row">
+              <button style={primaryButtonStyle} type="button" onClick={onCalculate}>
                 Berechnen
               </button>
               <button
                 style={secondaryButtonStyle}
                 type="button"
-                onClick={handleAddToList}
+                onClick={onAddToList}
               >
                 Zur Liste hinzufügen
               </button>
@@ -648,15 +626,11 @@ function MainAndList(props) {
           </div>
         </section>
 
-        {/* Ergebnisse */}
         <section style={resultsCardStyle}>
           <h2 style={sectionTitleStyle}>Ergebnisse (aktuelle Immobilie)</h2>
           {results ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <ResultRow
-                label="Kreditbetrag"
-                value={`${results.loanAmount.toFixed(2)} €`}
-              />
+              <ResultRow label="Kreditbetrag" value={`${results.loanAmount.toFixed(2)} €`} />
               <ResultRow
                 label="Monatliche Kreditrate"
                 value={`${results.monthlyLoanPayment.toFixed(2)} €`}
@@ -674,10 +648,7 @@ function MainAndList(props) {
                 label="Eigenkapitalrendite"
                 value={`${results.equityReturn.toFixed(2)} %`}
               />
-              <ResultRow
-                label="Maklerprovision"
-                value={`${results.brokerFee.toFixed(2)} €`}
-              />
+              <ResultRow label="Maklerprovision" value={`${results.brokerFee.toFixed(2)} €`} />
               <ResultRow
                 label="Sonstige Kaufnebenkosten"
                 value={`${results.otherBuyingCosts.toFixed(2)} €`}
@@ -691,30 +662,28 @@ function MainAndList(props) {
                 value={`${results.totalInvestment.toFixed(2)} €`}
               />
               <small style={{ color: "#9ca3af", marginTop: "0.5rem" }}>
-                Hinweis: Nebenkosten werden als Prozent vom Kaufpreis
-                berechnet (Makler + sonstige Kosten).
+                Hinweis: Nebenkosten werden als Prozent vom Kaufpreis berechnet (Makler +
+                sonstige Kosten).
               </small>
             </div>
           ) : (
             <p style={{ color: "#9ca3af" }}>
-              Trage links deine Daten ein und klicke auf{" "}
-              <strong>„Berechnen“</strong>, um Kennzahlen zu sehen.
+              Trage links deine Daten ein und klicke auf <strong>„Berechnen“</strong>, um Kennzahlen
+              zu sehen.
             </p>
           )}
         </section>
       </div>
 
-      {/* Immobilien-Liste */}
       <section style={{ marginTop: "2.5rem" }}>
         <h2 style={sectionTitleStyle}>Immobilien-Liste</h2>
-
         {properties.length === 0 ? (
           <p style={{ color: "#9ca3af" }}>
-            Noch keine Immobilien in der Liste. Berechne eine Immobilie und
-            klicke auf <strong>„Zur Liste hinzufügen“</strong>.
+            Noch keine Immobilien in der Liste. Berechne eine Immobilie und klicke auf
+            <strong>„Zur Liste hinzufügen“</strong>.
           </p>
         ) : (
-          <div style={tableWrapperStyle}>
+          <div style={tableWrapperStyle} className="table-wrapper">
             <table style={tableStyle}>
               <thead>
                 <tr style={tableHeadRowStyle}>
@@ -730,13 +699,12 @@ function MainAndList(props) {
                   <tr
                     key={prop.id}
                     style={{ ...tableBodyRowStyle, cursor: "pointer" }}
-                    onClick={() => setSelectedProperty(prop)}
+                    onClick={() => onSelectProperty(prop)}
                   >
                     <Td>{prop.title}</Td>
                     <Td
                       style={{
-                        color:
-                          prop.monthlyCashflow >= 0 ? "#166534" : "#991b1b",
+                        color: prop.monthlyCashflow >= 0 ? "#166534" : "#991b1b",
                         fontWeight: 500,
                       }}
                     >
@@ -746,9 +714,10 @@ function MainAndList(props) {
                     <Td>{prop.equityReturn.toFixed(2)} %</Td>
                     <Td>
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(prop.id);
+                          onDelete(prop.id);
                         }}
                         style={smallLinkButtonStyle}
                       >
@@ -763,7 +732,6 @@ function MainAndList(props) {
         )}
       </section>
 
-      {/* Detailbereich unter der Liste */}
       {selectedProperty && (
         <section style={{ marginTop: "1.5rem" }}>
           <h3
@@ -775,7 +743,6 @@ function MainAndList(props) {
           >
             Details zu: {selectedProperty.title}
           </h3>
-
           <div
             style={{
               display: "grid",
@@ -783,23 +750,13 @@ function MainAndList(props) {
               gap: "0.75rem",
             }}
           >
-            <DetailItem
-              label="Immobilienart"
-              value={formatPropertyType(selectedProperty.propertyType)}
-            />
-            <DetailItem
-              label="Strategie"
-              value={formatStrategy(selectedProperty.strategy)}
-            />
-
+            <DetailItem label="Immobilienart" value={formatPropertyType(selectedProperty.propertyType)} />
+            <DetailItem label="Strategie" value={formatStrategy(selectedProperty.strategy)} />
             <DetailItem
               label="Kaufpreis"
               value={`${selectedProperty.purchasePrice.toFixed(2)} €`}
             />
-            <DetailItem
-              label="Eigenkapital"
-              value={`${selectedProperty.equity.toFixed(2)} €`}
-            />
+            <DetailItem label="Eigenkapital" value={`${selectedProperty.equity.toFixed(2)} €`} />
             <DetailItem
               label="Mieteinnahmen / Monat"
               value={`${selectedProperty.rent.toFixed(2)} €`}
@@ -812,10 +769,7 @@ function MainAndList(props) {
               label="Zinssatz p.a."
               value={`${selectedProperty.interestRate.toFixed(2)} %`}
             />
-            <DetailItem
-              label="Laufzeit"
-              value={`${selectedProperty.loanYears.toFixed(0)} Jahre`}
-            />
+            <DetailItem label="Laufzeit" value={`${selectedProperty.loanYears.toFixed(0)} Jahre`} />
             <DetailItem
               label="Maklerprovision (%)"
               value={`${selectedProperty.brokerPercent.toFixed(2)} %`}
@@ -840,10 +794,7 @@ function MainAndList(props) {
               label="Gesamtinvestition (KP + Nebenkosten)"
               value={`${selectedProperty.totalInvestment.toFixed(2)} €`}
             />
-            <DetailItem
-              label="Kreditbetrag"
-              value={`${selectedProperty.loanAmount.toFixed(2)} €`}
-            />
+            <DetailItem label="Kreditbetrag" value={`${selectedProperty.loanAmount.toFixed(2)} €`} />
             <DetailItem
               label="Monatliche Kreditrate"
               value={`${selectedProperty.monthlyLoanPayment.toFixed(2)} €`}
@@ -852,20 +803,12 @@ function MainAndList(props) {
               label="Monatlicher Cashflow"
               value={`${selectedProperty.monthlyCashflow.toFixed(2)} € / Monat`}
             />
-            <DetailItem
-              label="Bruttorendite"
-              value={`${selectedProperty.grossYield.toFixed(2)} %`}
-            />
-            <DetailItem
-              label="Eigenkapitalrendite"
-              value={`${selectedProperty.equityReturn.toFixed(2)} %`}
-            />
-
+            <DetailItem label="Bruttorendite" value={`${selectedProperty.grossYield.toFixed(2)} %`} />
+            <DetailItem label="Eigenkapitalrendite" value={`${selectedProperty.equityReturn.toFixed(2)} %`} />
           </div>
-
           <button
             type="button"
-            onClick={() => setSelectedProperty(null)}
+            onClick={() => onSelectProperty(null)}
             style={{ ...secondaryButtonStyle, marginTop: "1rem" }}
           >
             Details schließen
@@ -876,48 +819,27 @@ function MainAndList(props) {
   );
 }
 
-function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
-  if (properties.length === 0) {
+function AnalyticsSection({ bestByEquity, bestByCashflow, analyticsData, propertiesCount }) {
+  if (propertiesCount === 0) {
     return (
       <section style={{ marginTop: "1.5rem" }}>
         <h2 style={sectionTitleStyle}>Analysen</h2>
         <p style={{ color: "#9ca3af" }}>
-          Noch keine Daten. Lege zuerst ein paar Immobilien an, um Analysen zu
-          sehen.
+          Noch keine Daten. Lege zuerst ein paar Immobilien an, um Analysen zu sehen.
         </p>
       </section>
     );
   }
 
-  const sortedByEquity = [...properties].sort(
-    (a, b) => b.equityReturn - a.equityReturn
-  );
-
-  const sortedByCashflow = [...properties].sort(
-    (a, b) => b.monthlyCashflow - a.monthlyCashflow
-  );
-
-  const maxEquityReturn = sortedByEquity.reduce(
-    (max, p) => (p.equityReturn > max ? p.equityReturn : max),
-    0
-  );
-
-  const maxAbsCashflow = sortedByCashflow.reduce((max, p) => {
-    const v = Math.abs(p.monthlyCashflow);
-    return v > max ? v : max;
-  }, 0);
+  const { sortedByEquity, sortedByCashflow, maxEquityReturn, maxAbsCashflow } = analyticsData;
 
   return (
     <section style={{ marginTop: "1.5rem" }}>
       <h2 style={sectionTitleStyle}>Analysen</h2>
-
-      {/* Top-Karten */}
       <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1.5rem" }}>
         {bestByEquity && (
           <div style={summaryCardStyle}>
-            <span style={summaryLabelStyle}>
-              Beste Immobilie nach Eigenkapitalrendite
-            </span>
+            <span style={summaryLabelStyle}>Beste Immobilie nach Eigenkapitalrendite</span>
             <span style={summaryValueStyle}>
               {bestByEquity.title} – {bestByEquity.equityReturn.toFixed(2)} %
             </span>
@@ -925,22 +847,18 @@ function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
         )}
         {bestByCashflow && (
           <div style={summaryCardStyle}>
-            <span style={summaryLabelStyle}>
-              Beste Immobilie nach Cashflow
-            </span>
+            <span style={summaryLabelStyle}>Beste Immobilie nach Cashflow</span>
             <span style={summaryValueStyle}>
-              {bestByCashflow.title} –{" "}
-              {bestByCashflow.monthlyCashflow.toFixed(2)} € / Monat
+              {bestByCashflow.title} – {bestByCashflow.monthlyCashflow.toFixed(2)} € / Monat
             </span>
           </div>
         )}
         <div style={summaryCardStyle}>
           <span style={summaryLabelStyle}>Anzahl analysierter Immobilien</span>
-          <span style={summaryValueStyle}>{properties.length}</span>
+          <span style={summaryValueStyle}>{propertiesCount}</span>
         </div>
       </div>
 
-      {/* Ranking-Tabelle */}
       <h3
         style={{
           fontSize: "0.95rem",
@@ -975,13 +893,7 @@ function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
                   <Td style={{ width: "40px" }}>{index + 1}</Td>
                   <Td>{prop.title}</Td>
                   <Td>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "0.2rem",
-                      }}
-                    >
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
                       <span>{prop.equityReturn.toFixed(2)} %</span>
                       <div
                         style={{
@@ -995,8 +907,7 @@ function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
                           style={{
                             width: `${barWidth}%`,
                             height: "100%",
-                            background:
-                              "linear-gradient(90deg, #22c55e, #16a34a)",
+                            background: "linear-gradient(90deg, #22c55e, #16a34a)",
                           }}
                         />
                       </div>
@@ -1024,7 +935,6 @@ function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
         </table>
       </div>
 
-      {/* Cashflow-"Chart" */}
       <h3
         style={{
           fontSize: "0.95rem",
@@ -1050,22 +960,12 @@ function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
         {sortedByCashflow.map((prop) => {
           const rel =
             maxAbsCashflow > 0
-              ? Math.max(
-                  6,
-                  (Math.abs(prop.monthlyCashflow) / maxAbsCashflow) * 100
-                )
+              ? Math.max(6, (Math.abs(prop.monthlyCashflow) / maxAbsCashflow) * 100)
               : 0;
           const isPositive = prop.monthlyCashflow >= 0;
 
           return (
-            <div
-              key={prop.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.75rem",
-              }}
-            >
+            <div key={prop.id} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <div
                 style={{
                   width: "180px",
@@ -1115,6 +1015,7 @@ function AnalyticsSection({ properties, bestByEquity, bestByCashflow }) {
     </section>
   );
 }
+
 function getDealQuality(equityReturn) {
   if (equityReturn <= 0) {
     return {
@@ -1150,6 +1051,7 @@ function getDealQuality(equityReturn) {
     color: "#15803d",
   };
 }
+
 function formatPropertyType(type) {
   switch (type) {
     case "wohnung":
@@ -1178,7 +1080,6 @@ function formatStrategy(strategy) {
   }
 }
 
-
 function SettingsSection({ onExportJson }) {
   return (
     <section style={{ marginTop: "1.5rem" }}>
@@ -1187,10 +1088,10 @@ function SettingsSection({ onExportJson }) {
         Hier kannst du globale Einstellungen für AIM Real Estate verwalten.
       </p>
       <ul style={{ color: "#4b5563", fontSize: "0.9rem", marginBottom: "1rem" }}>
-        <li>Firmenname & Branding von AIM Real Estate</li>
-        <li>Standard-Zinssätze & Annahmen</li>
+        <li>Firmenname &amp; Branding von AIM Real Estate</li>
+        <li>Standard-Zinssätze &amp; Annahmen</li>
         <li>Export / Import von Immobiliendaten</li>
-        <li>Benutzer & Rollen (wenn ihr größer werdet)</li>
+        <li>Benutzer &amp; Rollen (wenn ihr größer werdet)</li>
       </ul>
 
       <div>
@@ -1203,33 +1104,32 @@ function SettingsSection({ onExportJson }) {
         >
           Daten-Export
         </h3>
-        <button
-          type="button"
-          onClick={onExportJson}
-          style={primaryButtonStyle}
-        >
+        <button type="button" onClick={onExportJson} style={primaryButtonStyle}>
           Immobilien als Datei exportieren
         </button>
         <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.4rem" }}>
-          Es wird eine <code>.json</code>-Datei mit allen gespeicherten
-          Immobilien heruntergeladen. Diese kannst du später wieder importieren
-          oder für Auswertungen / PDFs verwenden.
+          Es wird eine <code>.json</code>-Datei mit allen gespeicherten Immobilien heruntergeladen. Diese
+          kannst du später wieder importieren oder für Auswertungen / PDFs verwenden.
         </p>
       </div>
     </section>
   );
 }
 
-/* ====== Kleinere UI-Komponenten ====== */
-
-function Field({ label, placeholder, value, onChange }) {
+function Field({ name, label, placeholder, value, onChange }) {
   return (
     <div>
-      <label style={labelStyle}>{label}</label>
+      <label style={labelStyle} htmlFor={name}>
+        {label}
+      </label>
       <input
+        id={name}
+        name={name}
         type="number"
+        inputMode="decimal"
+        step="0.01"
         value={value}
-        onChange={onChange}
+        onChange={(e) => onChange(name, e.target.value)}
         placeholder={placeholder}
         style={inputStyle}
       />
@@ -1246,7 +1146,7 @@ function ResultRow({ label, value, highlight }) {
       : { backgroundColor: "#eff6ff", color: "#1d4ed8" };
 
   return (
-    <div style={resultRowStyle}>
+    <div style={resultRowStyle} className="result-row">
       <span style={resultLabelStyle}>{label}</span>
       <span style={{ ...resultValueBadgeStyle, ...badgeColor }}>{value}</span>
     </div>
@@ -1283,12 +1183,10 @@ function Td({ children, style }) {
   return <td style={{ ...tdStyle, ...style }}>{children}</td>;
 }
 
-/* ====== Styles ====== */
-
 const pageStyle = {
   minHeight: "100vh",
   margin: 0,
-  padding: "2rem",
+  padding: "var(--app-page-padding)",
   background: "var(--aim-bg)",
   fontFamily:
     "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
@@ -1296,15 +1194,15 @@ const pageStyle = {
   justifyContent: "center",
   alignItems: "flex-start",
 };
+
 const portfolioStripStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+  gridTemplateColumns: "var(--app-portfolio-columns)",
   gap: "0.75rem",
   marginBottom: "1.25rem",
   padding: "0.85rem 1rem",
   borderRadius: "999px",
-  background:
-    "linear-gradient(120deg, rgba(37,99,235,0.15), rgba(8,47,73,0.9))",
+  background: "linear-gradient(120deg, rgba(37,99,235,0.15), rgba(8,47,73,0.9))",
   boxShadow: "0 14px 30px rgba(15, 23, 42, 0.55)",
   border: "1px solid rgba(148, 163, 184, 0.5)",
 };
@@ -1335,7 +1233,6 @@ const portfolioSubLabelStyle = {
   opacity: 0.9,
 };
 
-
 const cardStyle = {
   width: "100%",
   maxWidth: "1100px",
@@ -1343,11 +1240,11 @@ const cardStyle = {
   color: "var(--aim-text)",
   borderRadius: "18px",
   boxShadow: "0 20px 40px rgba(15, 23, 42, 0.35)",
-  padding: "2rem 2.5rem",
+  padding: "var(--app-card-padding)",
 };
 
 const navStyle = {
-  display: "inline-flex",
+  display: "flex",
   gap: "0.4rem",
   marginBottom: "0.9rem",
   padding: "0.25rem",
@@ -1355,6 +1252,7 @@ const navStyle = {
   backgroundColor: "rgba(15,23,42,0.06)",
   border: "1px solid rgba(148,163,184,0.6)",
   flexWrap: "wrap",
+  width: "100%",
 };
 
 const navButtonStyle = {
@@ -1366,12 +1264,12 @@ const navButtonStyle = {
   fontSize: "0.82rem",
   cursor: "pointer",
   fontWeight: 500,
+  flex: "var(--nav-button-flex)",
 };
 
 const navButtonActiveStyle = {
   ...navButtonStyle,
-  background:
-    "linear-gradient(135deg, rgba(37,99,235,0.9), rgba(129,140,248,0.95))",
+  background: "linear-gradient(135deg, rgba(37,99,235,0.9), rgba(129,140,248,0.95))",
   color: "#f9fafb",
 };
 
@@ -1386,33 +1284,14 @@ const headerStyle = {
   flexWrap: "wrap",
 };
 
-const logoStyle = {
-  width: 44,
-  height: 44,
-  borderRadius: "999px",
-  background:
-    "radial-gradient(circle at 30% 30%, #93c5fd, #2563eb 45%, #1e3a8a 80%)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#ffffff",
-  fontWeight: 800,
-  fontSize: "0.9rem",
-  letterSpacing: "0.09em",
-  boxShadow: "0 12px 26px rgba(15, 23, 42, 0.65)",
-  border: "1px solid rgba(148, 163, 184, 0.7)",
-};
-
 const titleStyle = {
   fontSize: "1.8rem",
   margin: 0,
   fontWeight: 800,
-  backgroundImage:
-    "linear-gradient(120deg, #eff6ff, #60a5fa, #1d4ed8)",
+  backgroundImage: "linear-gradient(120deg, #eff6ff, #60a5fa, #1d4ed8)",
   WebkitBackgroundClip: "text",
   color: "transparent",
 };
-
 
 const subtitleStyle = {
   margin: "0.25rem 0 0",
@@ -1481,7 +1360,7 @@ const summaryValueStyle = {
 
 const mainGridStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
+  gridTemplateColumns: "var(--app-main-grid-columns)",
   gap: "2rem",
   alignItems: "flex-start",
 };
@@ -1525,6 +1404,7 @@ const buttonRowStyle = {
   flexWrap: "wrap",
   marginTop: "0.5rem",
 };
+
 const brandBarStyle = {
   display: "flex",
   justifyContent: "space-between",
@@ -1532,8 +1412,7 @@ const brandBarStyle = {
   gap: "0.75rem",
   padding: "0.4rem 0.75rem",
   borderRadius: "999px",
-  background:
-    "linear-gradient(120deg, rgba(15,23,42,0.9), rgba(37,99,235,0.7))",
+  background: "linear-gradient(120deg, rgba(15,23,42,0.9), rgba(37,99,235,0.7))",
   marginBottom: "0.9rem",
   border: "1px solid rgba(148,163,184,0.7)",
 };
@@ -1583,18 +1462,6 @@ const brandBetaStyle = {
   border: "1px solid rgba(129,140,248,0.9)",
 };
 
-const footerStyle = {
-  marginTop: "1.25rem",
-  textAlign: "center",
-  fontSize: "0.8rem",
-  color: "#9ca3af",
-};
-
-const footerTextStyle = {
-  opacity: 0.9,
-};
-
-
 const primaryButtonStyle = {
   padding: "0.6rem 0.9rem",
   borderRadius: "999px",
@@ -1604,6 +1471,7 @@ const primaryButtonStyle = {
   fontSize: "0.9rem",
   fontWeight: 500,
   cursor: "pointer",
+  flex: "1 1 140px",
 };
 
 const secondaryButtonStyle = {
@@ -1615,6 +1483,7 @@ const secondaryButtonStyle = {
   fontSize: "0.9rem",
   fontWeight: 500,
   cursor: "pointer",
+  flex: "1 1 140px",
 };
 
 const resultRowStyle = {
