@@ -146,11 +146,14 @@ input::placeholder {
   background: radial-gradient(circle at 10% 0%, rgba(96, 165, 250, 0.22), transparent 45%);
   opacity: 0.9;
   pointer-events: none;
+  z-index: 0;
 }
 
 .app-root-card > * {
   position: relative;
+  z-index: 1;
 }
+
 
 .portfolio-strip {
   position: relative;

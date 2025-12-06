@@ -36,7 +36,13 @@ function App() {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed)
+        ? parsed.map((p) => ({
+            ...p,
+            propertyType: p.propertyType || "wohnung",
+            strategy: p.strategy || "buy_and_hold",
+          }))
+        : [];
     } catch {
       return [];
     }
@@ -231,11 +237,59 @@ function App() {
   const propertyTypeStats = useMemo(() => {
     return properties.reduce(
       (acc, prop) => {
-        acc[prop.propertyType] = (acc[prop.propertyType] || 0) + 1;
+        const typeKey = prop.propertyType || "wohnung";
+        acc[typeKey] = (acc[typeKey] || 0) + 1;
+        acc.all = (acc.all || 0) + 1;
         return acc;
       },
-      { all: properties.length }
+      { all: 0 }
     );
+  }, [properties]);
+
+  const propertyTypeBreakdown = useMemo(() => {
+    const buckets = {
+      all: {
+        key: "all",
+        label: "Gesamtportfolio",
+        count: 0,
+        totalCashflow: 0,
+        totalGross: 0,
+        totalEquity: 0,
+      },
+    };
+
+    const ensureBucket = (key) => {
+      if (!buckets[key]) {
+        buckets[key] = {
+          key,
+          label: formatPropertyType(key),
+          count: 0,
+          totalCashflow: 0,
+          totalGross: 0,
+          totalEquity: 0,
+        };
+      }
+      return buckets[key];
+    };
+
+    properties.forEach((prop) => {
+      const typeKey = prop.propertyType || "wohnung";
+      const aggregate = (bucket) => {
+        bucket.count += 1;
+        bucket.totalCashflow += prop.monthlyCashflow;
+        bucket.totalGross += prop.grossYield;
+        bucket.totalEquity += prop.equityReturn;
+      };
+
+      aggregate(ensureBucket("all"));
+      aggregate(ensureBucket(typeKey));
+    });
+
+    return Object.values(buckets).map((bucket) => ({
+      ...bucket,
+      avgGrossYield: bucket.count > 0 ? bucket.totalGross / bucket.count : 0,
+      avgEquityReturn: bucket.count > 0 ? bucket.totalEquity / bucket.count : 0,
+    }));
   }, [properties]);
 
   const analyticsData = useMemo(() => {
@@ -351,6 +405,7 @@ function App() {
               totalCashflow={totalCashflow}
               avgGrossYield={avgGrossYield}
               avgEquityReturn={avgEquityReturn}
+              propertyTypeBreakdown={propertyTypeBreakdown}
             />
             <MainAndList
               formData={formData}
@@ -408,6 +463,7 @@ function OverviewSection({
   totalCashflow,
   avgGrossYield,
   avgEquityReturn,
+  propertyTypeBreakdown,
 }) {
   const hasProperties = propertiesCount > 0;
   return (
@@ -435,6 +491,9 @@ function OverviewSection({
           value={hasProperties ? `${avgEquityReturn.toFixed(2)} %` : "—"}
         />
       </div>
+      {hasProperties && (
+        <PropertyTypeOverview breakdown={propertyTypeBreakdown} />
+      )}
     </section>
   );
 }
@@ -512,6 +571,9 @@ function MainAndList({
   onDelete,
   selectedProperty,
   onSelectProperty,
+  propertyFilter,
+  onFilterChange,
+  propertyTypeStats,
 }) {
   const {
     title,
@@ -892,6 +954,58 @@ function PropertyFilterBar({ activeFilter, onChange, stats }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function PropertyTypeOverview({ breakdown }) {
+  if (!breakdown || breakdown.length <= 1) {
+    return null;
+  }
+
+  return (
+    <div style={typeSplitGridStyle}>
+      {breakdown.map((bucket) => (
+        <div
+          key={bucket.key}
+          style={{
+            ...typeSplitCardStyle,
+            border:
+              bucket.key === "all"
+                ? "1px solid rgba(96, 165, 250, 0.5)"
+                : "1px solid rgba(148, 163, 184, 0.25)",
+            background:
+              bucket.key === "all"
+                ? "linear-gradient(130deg, rgba(59, 130, 246, 0.3), rgba(13, 148, 136, 0.15))"
+                : "rgba(15, 23, 42, 0.5)",
+          }}
+        >
+          <div style={typeSplitHeaderStyle}>
+            <span style={typeSplitLabelStyle}>{bucket.label}</span>
+            <span style={typeSplitCountStyle}>{bucket.count}</span>
+          </div>
+          <div style={typeSplitMetricsStyle}>
+            <div>
+              <div style={typeSplitMetricLabelStyle}>Cashflow / Monat</div>
+              <div style={typeSplitMetricValueStyle}>
+                {bucket.totalCashflow.toFixed(2)} €
+              </div>
+            </div>
+            <div>
+              <div style={typeSplitMetricLabelStyle}>Ø Bruttorendite</div>
+              <div style={typeSplitMetricValueStyle}>
+                {bucket.avgGrossYield.toFixed(2)} %
+              </div>
+            </div>
+            <div>
+              <div style={typeSplitMetricLabelStyle}>Ø EK-Rendite</div>
+              <div style={typeSplitMetricValueStyle}>
+                {bucket.avgEquityReturn.toFixed(2)} %
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1686,6 +1800,57 @@ const filterCountStyle = {
   padding: "0.05rem 0.55rem",
   fontSize: "0.75rem",
   border: "1px solid rgba(148, 163, 184, 0.4)",
+};
+
+const typeSplitGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: "0.9rem",
+  marginTop: "1rem",
+};
+
+const typeSplitCardStyle = {
+  borderRadius: "16px",
+  padding: "1rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.8rem",
+};
+
+const typeSplitHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+};
+
+const typeSplitLabelStyle = {
+  fontSize: "0.9rem",
+  color: "#f8fafc",
+  fontWeight: 600,
+};
+
+const typeSplitCountStyle = {
+  fontSize: "0.85rem",
+  padding: "0.1rem 0.65rem",
+  borderRadius: "999px",
+  border: "1px solid rgba(148, 163, 184, 0.4)",
+};
+
+const typeSplitMetricsStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: "0.6rem",
+};
+
+const typeSplitMetricLabelStyle = {
+  fontSize: "0.75rem",
+  color: "rgba(226, 232, 240, 0.7)",
+};
+
+const typeSplitMetricValueStyle = {
+  fontSize: "0.95rem",
+  fontWeight: 600,
+  color: "#f8fafc",
 };
 
 export default App;
