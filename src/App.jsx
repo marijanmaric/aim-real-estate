@@ -18,6 +18,14 @@ const initialFormState = {
   strategy: "buy_and_hold",
 };
 
+const PROPERTY_FILTERS = [
+  { value: "all", label: "Alle" },
+  { value: "wohnung", label: "Wohnungen" },
+  { value: "haus", label: "Häuser" },
+  { value: "sanierung", label: "Sanierung" },
+  { value: "gewerbe", label: "Gewerbe" },
+];
+
 function App() {
   const [formData, setFormData] = useState(initialFormState);
   const [properties, setProperties] = useState(() => {
@@ -36,6 +44,7 @@ function App() {
   const [results, setResults] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [propertyFilter, setPropertyFilter] = useState("all");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -219,6 +228,16 @@ function App() {
     return { bestByEquity: bestEquity, bestByCashflow: bestCashflow };
   }, [properties]);
 
+  const propertyTypeStats = useMemo(() => {
+    return properties.reduce(
+      (acc, prop) => {
+        acc[prop.propertyType] = (acc[prop.propertyType] || 0) + 1;
+        return acc;
+      },
+      { all: properties.length }
+    );
+  }, [properties]);
+
   const analyticsData = useMemo(() => {
     if (properties.length === 0) {
       return {
@@ -255,28 +274,28 @@ function App() {
         <nav style={navStyle} className="app-nav">
           <button
             type="button"
-            style={activeTab === "overview" ? navButtonActiveStyle : navButtonStyle}
+            className={`nav-pill ${activeTab === "overview" ? "is-active" : ""}`}
             onClick={() => setActiveTab("overview")}
           >
             Dashboard
           </button>
           <button
             type="button"
-            style={activeTab === "properties" ? navButtonActiveStyle : navButtonStyle}
+            className={`nav-pill ${activeTab === "properties" ? "is-active" : ""}`}
             onClick={() => setActiveTab("properties")}
           >
             Immobilien
           </button>
           <button
             type="button"
-            style={activeTab === "analytics" ? navButtonActiveStyle : navButtonStyle}
+            className={`nav-pill ${activeTab === "analytics" ? "is-active" : ""}`}
             onClick={() => setActiveTab("analytics")}
           >
             Analysen
           </button>
           <button
             type="button"
-            style={activeTab === "settings" ? navButtonActiveStyle : navButtonStyle}
+            className={`nav-pill ${activeTab === "settings" ? "is-active" : ""}`}
             onClick={() => setActiveTab("settings")}
           >
             Einstellungen
@@ -343,6 +362,9 @@ function App() {
               onDelete={handleDelete}
               selectedProperty={selectedProperty}
               onSelectProperty={setSelectedProperty}
+              propertyFilter={propertyFilter}
+              onFilterChange={setPropertyFilter}
+              propertyTypeStats={propertyTypeStats}
             />
           </>
         )}
@@ -358,6 +380,9 @@ function App() {
             onDelete={handleDelete}
             selectedProperty={selectedProperty}
             onSelectProperty={setSelectedProperty}
+            propertyFilter={propertyFilter}
+            onFilterChange={setPropertyFilter}
+            propertyTypeStats={propertyTypeStats}
           />
         )}
 
@@ -502,6 +527,21 @@ function MainAndList({
     otherCostsPercent,
   } = formData;
 
+  const filteredProperties =
+    propertyFilter === "all"
+      ? properties
+      : properties.filter((prop) => prop.propertyType === propertyFilter);
+
+  useEffect(() => {
+    if (
+      selectedProperty &&
+      propertyFilter !== "all" &&
+      selectedProperty.propertyType !== propertyFilter
+    ) {
+      onSelectProperty(null);
+    }
+  }, [selectedProperty, propertyFilter, onSelectProperty]);
+
   return (
     <>
       <div style={mainGridStyle} className="main-grid">
@@ -513,6 +553,7 @@ function MainAndList({
                 Name der Immobilie
               </label>
               <input
+                className="aim-input"
                 id="title-input"
                 type="text"
                 value={title}
@@ -526,6 +567,7 @@ function MainAndList({
                 Immobilienart
               </label>
               <select
+                className="aim-input"
                 id="propertyType"
                 value={propertyType}
                 onChange={(e) => onFormChange("propertyType", e.target.value)}
@@ -543,6 +585,7 @@ function MainAndList({
                 Strategie
               </label>
               <select
+                className="aim-input"
                 id="strategy"
                 value={strategy}
                 onChange={(e) => onFormChange("strategy", e.target.value)}
@@ -676,11 +719,22 @@ function MainAndList({
       </div>
 
       <section style={{ marginTop: "2.5rem" }}>
-        <h2 style={sectionTitleStyle}>Immobilien-Liste</h2>
+        <div style={listHeaderStyle}>
+          <h2 style={{ ...sectionTitleStyle, marginBottom: 0 }}>Immobilien-Liste</h2>
+          <PropertyFilterBar
+            activeFilter={propertyFilter}
+            onChange={onFilterChange}
+            stats={propertyTypeStats}
+          />
+        </div>
         {properties.length === 0 ? (
           <p style={{ color: "#9ca3af" }}>
             Noch keine Immobilien in der Liste. Berechne eine Immobilie und klicke auf
             <strong>„Zur Liste hinzufügen“</strong>.
+          </p>
+        ) : filteredProperties.length === 0 ? (
+          <p style={{ color: "#94a3b8" }}>
+            Keine Immobilien für diese Kategorie vorhanden. Wähle eine andere Filteroption.
           </p>
         ) : (
           <div style={tableWrapperStyle} className="table-wrapper">
@@ -695,7 +749,7 @@ function MainAndList({
                 </tr>
               </thead>
               <tbody>
-                {properties.map((prop) => (
+                {filteredProperties.map((prop) => (
                   <tr
                     key={prop.id}
                     style={{ ...tableBodyRowStyle, cursor: "pointer" }}
@@ -816,6 +870,29 @@ function MainAndList({
         </section>
       )}
     </>
+  );
+}
+
+function PropertyFilterBar({ activeFilter, onChange, stats }) {
+  return (
+    <div style={filterBarStyle} className="property-filter-bar">
+      {PROPERTY_FILTERS.map((filter) => {
+        const isActive = activeFilter === filter.value;
+        const count = stats[filter.value] ?? 0;
+        return (
+          <button
+            key={filter.value}
+            type="button"
+            className={`property-filter-pill ${isActive ? "is-active" : ""}`}
+            style={isActive ? propertyFilterPillActiveStyle : propertyFilterPillStyle}
+            onClick={() => onChange(filter.value)}
+          >
+            <span>{filter.label}</span>
+            <span style={filterCountStyle}>{count}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1118,11 +1195,12 @@ function SettingsSection({ onExportJson }) {
 
 function Field({ name, label, placeholder, value, onChange }) {
   return (
-    <div>
+    <div className="input-stack">
       <label style={labelStyle} htmlFor={name}>
         {label}
       </label>
       <input
+        className="aim-input"
         id={name}
         name={name}
         type="number"
@@ -1253,10 +1331,10 @@ const portfolioSubLabelStyle = {
 const cardStyle = {
   width: "100%",
   maxWidth: "1100px",
-  backgroundColor: "var(--aim-bg-card)",
+  backgroundColor: "transparent",
   color: "var(--aim-text)",
   borderRadius: "18px",
-  boxShadow: "0 20px 40px rgba(15, 23, 42, 0.35)",
+  boxShadow: "0 25px 60px rgba(2, 6, 23, 0.55)",
   padding: "var(--app-card-padding)",
 };
 
@@ -1264,34 +1342,16 @@ const navStyle = {
   display: "flex",
   gap: "0.4rem",
   marginBottom: "0.9rem",
-  padding: "0.25rem",
+  padding: "0.3rem",
   borderRadius: "999px",
-  backgroundColor: "rgba(15,23,42,0.06)",
-  border: "1px solid rgba(148,163,184,0.6)",
+  backgroundColor: "rgba(15,23,42,0.14)",
+  border: "1px solid rgba(148,163,184,0.35)",
   flexWrap: "wrap",
   width: "100%",
 };
 
-const navButtonStyle = {
-  padding: "0.35rem 0.95rem",
-  borderRadius: "999px",
-  border: "none",
-  backgroundColor: "transparent",
-  color: "#9ca3af",
-  fontSize: "0.82rem",
-  cursor: "pointer",
-  fontWeight: 500,
-  flex: "var(--nav-button-flex)",
-};
-
-const navButtonActiveStyle = {
-  ...navButtonStyle,
-  background: "linear-gradient(135deg, rgba(37,99,235,0.9), rgba(129,140,248,0.95))",
-  color: "#f9fafb",
-};
-
 const headerStyle = {
-  borderBottom: "1px solid #e5e7eb",
+  borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
   paddingBottom: "1rem",
   marginBottom: "1.5rem",
   display: "flex",
@@ -1305,14 +1365,14 @@ const titleStyle = {
   fontSize: "1.8rem",
   margin: 0,
   fontWeight: 800,
-  backgroundImage: "linear-gradient(120deg, #eff6ff, #60a5fa, #1d4ed8)",
+  backgroundImage: "linear-gradient(120deg, #c7d2fe, #60a5fa, #22d3ee)",
   WebkitBackgroundClip: "text",
   color: "transparent",
 };
 
 const subtitleStyle = {
   margin: "0.25rem 0 0",
-  color: "#e5e7eb",
+  color: "rgba(226, 232, 240, 0.7)",
   fontSize: "0.9rem",
 };
 
@@ -1327,8 +1387,8 @@ const badgeStyle = {
   fontSize: "0.85rem",
   padding: "0.4rem 0.8rem",
   borderRadius: "999px",
-  backgroundColor: "#eff6ff",
-  color: "#1d4ed8",
+  backgroundColor: "rgba(96, 165, 250, 0.15)",
+  color: "#93c5fd",
   fontWeight: 500,
 };
 
@@ -1345,7 +1405,7 @@ const sectionTitleStyle = {
   marginTop: 0,
   marginBottom: "0.75rem",
   fontSize: "1.1rem",
-  color: "#111827",
+  color: "#e2e8f0",
 };
 
 const summaryGridStyle = {
@@ -1354,11 +1414,20 @@ const summaryGridStyle = {
   gap: "0.75rem",
 };
 
+const listHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "1rem",
+  flexWrap: "wrap",
+  marginBottom: "0.85rem",
+};
+
 const summaryCardStyle = {
   padding: "0.9rem 1rem",
   borderRadius: "12px",
-  backgroundColor: "#f9fafb",
-  border: "1px solid #e5e7eb",
+  backgroundColor: "rgba(15, 23, 42, 0.55)",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
   display: "flex",
   flexDirection: "column",
   gap: "0.25rem",
@@ -1366,13 +1435,13 @@ const summaryCardStyle = {
 
 const summaryLabelStyle = {
   fontSize: "0.8rem",
-  color: "#6b7280",
+  color: "rgba(148, 163, 184, 0.85)",
 };
 
 const summaryValueStyle = {
   fontSize: "1rem",
   fontWeight: 600,
-  color: "#111827",
+  color: "#f8fafc",
 };
 
 const mainGridStyle = {
@@ -1385,22 +1454,22 @@ const mainGridStyle = {
 const formCardStyle = {
   padding: "1.5rem",
   borderRadius: "14px",
-  border: "1px solid #e5e7eb",
-  backgroundColor: "#f9fafb",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.65)",
 };
 
 const resultsCardStyle = {
   padding: "1.5rem",
   borderRadius: "14px",
-  border: "1px solid #e5e7eb",
-  backgroundColor: "#ffffff",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
 };
 
 const labelStyle = {
   display: "block",
   marginBottom: "0.25rem",
   fontSize: "0.85rem",
-  color: "#4b5563",
+  color: "rgba(226, 232, 240, 0.8)",
 };
 
 const inputStyle = {
@@ -1413,7 +1482,7 @@ const inputStyle = {
   lineHeight: "1.2",
   outline: "none",
   boxSizing: "border-box",
-  color: "var(--aim-text)",
+  color: "#f8fafc",
 };
 
 const selectStyle = {
@@ -1493,20 +1562,22 @@ const primaryButtonStyle = {
   padding: "0.6rem 0.9rem",
   borderRadius: "999px",
   border: "none",
-  background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
-  color: "white",
+  background: "linear-gradient(135deg, #38bdf8, #6366f1)",
+  color: "#0f172a",
   fontSize: "0.9rem",
   fontWeight: 500,
   cursor: "pointer",
   flex: "1 1 140px",
+  boxShadow: "0 12px 30px rgba(59, 130, 246, 0.35)",
+  transition: "transform 0.15s ease, box-shadow 0.15s ease",
 };
 
 const secondaryButtonStyle = {
   padding: "0.6rem 0.9rem",
   borderRadius: "999px",
-  border: "1px solid #d1d5db",
-  backgroundColor: "white",
-  color: "#374151",
+  border: "1px solid rgba(148, 163, 184, 0.35)",
+  backgroundColor: "rgba(15, 23, 42, 0.2)",
+  color: "#e2e8f0",
   fontSize: "0.9rem",
   fontWeight: 500,
   cursor: "pointer",
@@ -1516,7 +1587,7 @@ const secondaryButtonStyle = {
 const resultRowStyle = {
   padding: "0.75rem 0.9rem",
   borderRadius: "10px",
-  backgroundColor: "#f9fafb",
+  backgroundColor: "rgba(15, 23, 42, 0.5)",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -1525,7 +1596,7 @@ const resultRowStyle = {
 
 const resultLabelStyle = {
   fontSize: "0.9rem",
-  color: "#4b5563",
+  color: "rgba(226, 232, 240, 0.8)",
 };
 
 const resultValueBadgeStyle = {
@@ -1538,7 +1609,8 @@ const resultValueBadgeStyle = {
 const tableWrapperStyle = {
   overflowX: "auto",
   borderRadius: "12px",
-  border: "1px solid #e5e7eb",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
 };
 
 const tableStyle = {
@@ -1548,35 +1620,72 @@ const tableStyle = {
 };
 
 const tableHeadRowStyle = {
-  backgroundColor: "#f3f4f6",
+  backgroundColor: "rgba(15, 23, 42, 0.8)",
   textAlign: "left",
 };
 
 const tableBodyRowStyle = {
-  borderTop: "1px solid #e5e7eb",
+  borderTop: "1px solid rgba(148, 163, 184, 0.2)",
 };
 
 const thStyle = {
   padding: "0.6rem 0.75rem",
   fontWeight: 600,
   fontSize: "0.8rem",
-  color: "#4b5563",
+  color: "rgba(226, 232, 240, 0.85)",
   whiteSpace: "nowrap",
 };
 
 const tdStyle = {
   padding: "0.55rem 0.75rem",
-  color: "#374151",
+  color: "#f8fafc",
   verticalAlign: "middle",
 };
 
 const smallLinkButtonStyle = {
   border: "none",
   background: "none",
-  color: "#9ca3af",
+  color: "rgba(148, 163, 184, 0.9)",
   cursor: "pointer",
   fontSize: "0.8rem",
   textDecoration: "underline",
+};
+
+const filterBarStyle = {
+  display: "flex",
+  gap: "0.5rem",
+  flexWrap: "wrap",
+  justifyContent: "flex-end",
+};
+
+const propertyFilterPillStyle = {
+  borderRadius: "999px",
+  border: "1px solid rgba(148, 163, 184, 0.2)",
+  backgroundColor: "rgba(15, 23, 42, 0.2)",
+  color: "rgba(226, 232, 240, 0.8)",
+  padding: "0.35rem 0.9rem",
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  cursor: "pointer",
+};
+
+const propertyFilterPillActiveStyle = {
+  ...propertyFilterPillStyle,
+  border: "1px solid rgba(96, 165, 250, 0.6)",
+  backgroundColor: "rgba(59, 130, 246, 0.15)",
+  color: "#f8fafc",
+  boxShadow: "0 8px 20px rgba(59, 130, 246, 0.25)",
+};
+
+const filterCountStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "999px",
+  padding: "0.05rem 0.55rem",
+  fontSize: "0.75rem",
+  border: "1px solid rgba(148, 163, 184, 0.4)",
 };
 
 export default App;
