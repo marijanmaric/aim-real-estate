@@ -16,6 +16,7 @@ const initialFormState = {
   otherCostsPercent: "4.5",
   propertyType: "wohnung",
   strategy: "buy_and_hold",
+  photoUrls: "",
 };
 
 const PROPERTY_FILTERS = [
@@ -41,6 +42,11 @@ function App() {
             ...p,
             propertyType: p.propertyType || "wohnung",
             strategy: p.strategy || "buy_and_hold",
+            photos: Array.isArray(p.photos)
+              ? p.photos
+              : p.photoUrl
+              ? [p.photoUrl]
+              : [],
           }))
         : [];
     } catch {
@@ -49,7 +55,7 @@ function App() {
   });
   const [results, setResults] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState("info");
   const [propertyFilter, setPropertyFilter] = useState("all");
 
   useEffect(() => {
@@ -139,6 +145,11 @@ function App() {
       title: formData.title.trim(),
       propertyType: formData.propertyType,
       strategy: formData.strategy,
+      photos:
+        formData.photoUrls
+          .split(/[\n,]/)
+          .map((url) => url.trim())
+          .filter(Boolean) || [],
       purchasePrice: Number(formData.purchasePrice) || 0,
       equity: Number(formData.equity) || 0,
       rent: Number(formData.rent) || 0,
@@ -328,6 +339,13 @@ function App() {
         <nav style={navStyle} className="app-nav">
           <button
             type="button"
+            className={`nav-pill ${activeTab === "info" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("info")}
+          >
+            Info
+          </button>
+          <button
+            type="button"
             className={`nav-pill ${activeTab === "overview" ? "is-active" : ""}`}
             onClick={() => setActiveTab("overview")}
           >
@@ -353,6 +371,13 @@ function App() {
             onClick={() => setActiveTab("settings")}
           >
             Einstellungen
+          </button>
+          <button
+            type="button"
+            className={`nav-pill ${activeTab === "valuation" ? "is-active" : ""}`}
+            onClick={() => setActiveTab("valuation")}
+          >
+            Bewertung
           </button>
         </nav>
 
@@ -397,6 +422,8 @@ function App() {
             </button>
           </div>
         </header>
+
+        {activeTab === "info" && <InfoTab />}
 
         {activeTab === "overview" && (
           <>
@@ -450,6 +477,14 @@ function App() {
           />
         )}
 
+{activeTab === "valuation" && (
+  <ValuationTab
+    formData={formData}
+    results={results}
+    onCalculate={handleCalculate}
+  />
+)}
+
         {activeTab === "settings" && (
           <SettingsSection onExportJson={handleExportJson} />
         )}
@@ -495,6 +530,60 @@ function OverviewSection({
         <PropertyTypeOverview breakdown={propertyTypeBreakdown} />
       )}
     </section>
+  );
+}
+
+function InfoTab() {
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={infoHeroStyle}>
+        <div>
+          <h2 style={{ ...sectionTitleStyle, fontSize: "1.4rem" }}>Willkommen bei AIM Real Estate</h2>
+          <p style={infoHeroTextStyle}>
+            AIM Real Estate ist dein persönlicher Deal-Copilot. Erfasse Wohnungen, Häuser oder
+            Sanierungen, optimiere Cashflow und Rendite und exportiere Portfolios als JSON.
+          </p>
+        </div>
+        <div style={infoHeroBadgeStyle}>Beta · v0.5</div>
+      </div>
+
+      <div style={infoGridStyle}>
+        <InfoCard
+          title="1 · Deal anlegen"
+          body="Trage Eckdaten wie Kaufpreis, Eigenkapital oder Miete ein. Optional kannst du mehrere Fotos hinzufügen, um dein Objekt visuell festzuhalten."
+        />
+        <InfoCard
+          title="2 · Kennzahlen prüfen"
+          body="Mit einem Klick auf „Berechnen“ erhältst du Cashflow, Renditen und Nebenkosten. Die neue Bewertungs-Ansicht zeigt Szenarien (Worst/Real/Best)."
+        />
+        <InfoCard
+          title="3 · Analysieren & Exportieren"
+          body="Vergleiche dein Portfolio im Dashboard, nutze den Analytics-Tab für Rankings und exportiere alles als JSON-Datei."
+        />
+      </div>
+
+      <div style={infoChecklistStyle}>
+        <h3 style={{ margin: 0, fontSize: "1rem", color: "#f8fafc" }}>Was du wissen solltest</h3>
+        <ul style={infoChecklistListStyle}>
+          <li>⚡ Keine Registrierung – alles bleibt im Browser (localStorage).</li>
+          <li>🧮 Renditen basieren auf deinen Annahmen. Passe sie jederzeit an.</li>
+          <li>📤 Exportfunktion findet sich im Tab „Einstellungen“.</li>
+          <li>🔐 Deine Daten verlassen den Browser nur, wenn du sie exportierst.</li>
+        </ul>
+        <button type="button" style={primaryButtonStyle} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          Zum Dashboard wechseln
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function InfoCard({ title, body }) {
+  return (
+    <div style={infoCardStyle}>
+      <h4 style={infoCardTitleStyle}>{title}</h4>
+      <p style={infoCardTextStyle}>{body}</p>
+    </div>
   );
 }
 
@@ -579,6 +668,7 @@ function MainAndList({
     title,
     propertyType,
     strategy,
+    photoUrls,
     purchasePrice,
     equity,
     rent,
@@ -658,6 +748,8 @@ function MainAndList({
                 <option value="eigennutzung">Eigennutzung</option>
               </select>
             </div>
+
+            <PhotoField value={photoUrls} onChange={(val) => onFormChange("photoUrls", val)} />
 
             <Field
               name="purchasePrice"
@@ -859,6 +951,22 @@ function MainAndList({
           >
             Details zu: {selectedProperty.title}
           </h3>
+          {selectedProperty.photos && selectedProperty.photos.length > 0 && (
+            <div style={detailGalleryStyle}>
+              {selectedProperty.photos.map((photo, index) => (
+                <div key={photo + index} style={detailImageWrapperStyle}>
+                  <img
+                    src={photo}
+                    alt={`Foto ${index + 1} von ${selectedProperty.title}`}
+                    style={detailImageStyle}
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <div
             style={{
               display: "grid",
@@ -935,6 +1043,79 @@ function MainAndList({
   );
 }
 
+function PhotoField({ value, onChange }) {
+  const urls = value
+    .split(/[\n,]/)
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return (
+    <div style={photoFieldContainerStyle}>
+      <h3 style={photoFieldTitleStyle}>📸 Immobilie visuell festhalten</h3>
+      <p style={helperTextStyle}>
+        Füge Links zu Fotos deiner Immobilie hinzu (je Zeile oder durch Komma getrennt) – du findest
+        kostenlose Bilder z.&nbsp;B.
+        bei{" "}
+        <a
+          href="https://unsplash.com/s/photos/real-estate"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: "#60a5fa" }}
+        >
+          Unsplash
+        </a>
+        .
+      </p>
+      <label style={labelStyle} htmlFor="photoUrls">
+        Bild-URLs (optional)
+      </label>
+      <textarea
+        className="aim-input"
+        id="photoUrls"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={"https://example.com/foto-1.jpg\nhttps://example.com/foto-2.jpg"}
+        style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
+      />
+      <PhotoPreview url={value} />
+    </div>
+  );
+}
+
+function PhotoPreview({ url }) {
+  const urls = url
+    .split(/[\n,]/)
+    .map((u) => u.trim())
+    .filter(Boolean);
+  return (
+    <div style={photoPreviewGridStyle}>
+      {urls.length === 0 ? (
+        <div style={photoPreviewPlaceholderStyle}>
+          <span role="img" aria-label="Foto hinzufügen">
+            🏙️
+          </span>
+          <span>Foto-Links einfügen, um hier eine Vorschau zu sehen</span>
+        </div>
+      ) : (
+        urls.slice(0, 3).map((link, index) => (
+          <div key={link + index} style={photoPreviewStyle}>
+            <img
+              src={link}
+              alt={`Vorschau ${index + 1}`}
+              style={photoPreviewImageStyle}
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
+        ))
+      )}
+      {urls.length > 3 && (
+        <div style={photoPreviewMoreBadgeStyle}>+{urls.length - 3} weitere</div>
+      )}
+    </div>
+  );
+}
+
 function PropertyFilterBar({ activeFilter, onChange, stats }) {
   return (
     <div style={filterBarStyle} className="property-filter-bar">
@@ -955,6 +1136,55 @@ function PropertyFilterBar({ activeFilter, onChange, stats }) {
         );
       })}
     </div>
+  );
+}
+
+function ValuationTab({ formData, results, onCalculate }) {
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={valuationIntroStyle}>
+        <h2 style={{ ...sectionTitleStyle, fontSize: "1.3rem" }}>Bewertung &amp; Szenarien</h2>
+        <p style={{ color: "rgba(226, 232, 240, 0.85)" }}>
+          Nutze diese Ansicht, um schnell zu prüfen, wie sich Änderungen bei Kaufpreis,
+          Eigenkapital oder Cashflow auswirken. Die Szenarien bauen auf deinen Eingaben aus dem
+          Formular auf.
+        </p>
+        <div>
+          <button type="button" style={primaryButtonStyle} onClick={onCalculate}>
+            Kennzahlen aktualisieren
+          </button>
+        </div>
+      </div>
+
+      <div style={valuationSummaryGridStyle}>
+        <SummaryCard label="Kaufpreis" value={`${formData.purchasePrice || 0} €`} />
+        <SummaryCard label="Eigenkapital" value={`${formData.equity || 0} €`} />
+        <SummaryCard label="Strategie" value={formatStrategy(formData.strategy)} />
+        <SummaryCard
+          label="Letzte Berechnung"
+          value={results ? `${results.monthlyCashflow.toFixed(2)} € CF` : "—"}
+        />
+      </div>
+
+      <div style={valuationScenarioStyle}>
+        <h3 style={{ color: "#f8fafc", marginBottom: "0.6rem" }}>Szenario-Analyse</h3>
+        <div style={valuationScenarioGridStyle}>
+          {valuationScenarios(results).map((scenario) => (
+            <div key={scenario.label} style={valuationScenarioCardStyle}>
+              <div style={{ fontSize: "0.8rem", color: "rgba(226, 232, 240, 0.8)" }}>
+                {scenario.label}
+              </div>
+              <div style={{ fontSize: "1.1rem", fontWeight: 600, color: scenario.color }}>
+                {scenario.cashflow.toFixed(2)} € / Monat
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "rgba(226, 232, 240, 0.7)" }}>
+                Rendite: {scenario.equityReturn.toFixed(2)} %
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1269,6 +1499,37 @@ function formatStrategy(strategy) {
     default:
       return "Unbekannt";
   }
+}
+
+function valuationScenarios(results) {
+  if (!results) {
+    return [
+      { label: "Worst Case", cashflow: 0, equityReturn: 0, color: "#f97316" },
+      { label: "Realistisch", cashflow: 0, equityReturn: 0, color: "#22d3ee" },
+      { label: "Best Case", cashflow: 0, equityReturn: 0, color: "#22c55e" },
+    ];
+  }
+
+  return [
+    {
+      label: "Worst Case (−10% Miete)",
+      cashflow: results.monthlyCashflow * 0.9,
+      equityReturn: results.equityReturn * 0.85,
+      color: "#f97316",
+    },
+    {
+      label: "Realistisch",
+      cashflow: results.monthlyCashflow,
+      equityReturn: results.equityReturn,
+      color: "#22d3ee",
+    },
+    {
+      label: "Best Case (+10% Miete)",
+      cashflow: results.monthlyCashflow * 1.1,
+      equityReturn: results.equityReturn * 1.15,
+      color: "#22c55e",
+    },
+  ];
 }
 
 function SettingsSection({ onExportJson }) {
@@ -1802,6 +2063,118 @@ const filterCountStyle = {
   border: "1px solid rgba(148, 163, 184, 0.4)",
 };
 
+const detailImageWrapperStyle = {
+  width: "100%",
+  maxHeight: "320px",
+  borderRadius: "14px",
+  overflow: "hidden",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  marginBottom: "1rem",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
+};
+
+const detailImageStyle = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  display: "block",
+};
+
+const detailGalleryStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0.75rem",
+  marginBottom: "1rem",
+};
+
+
+const helperTextStyle = {
+  color: "rgba(226, 232, 240, 0.8)",
+  fontSize: "0.78rem",
+};
+
+const photoFieldTitleStyle = {
+  margin: 0,
+  fontSize: "0.9rem",
+  fontWeight: 600,
+  color: "#f8fafc",
+};
+
+const photoFieldContainerStyle = {
+  padding: "1rem",
+  borderRadius: "16px",
+  border: "1px solid rgba(96, 165, 250, 0.35)",
+  backgroundColor: "rgba(15, 23, 42, 0.35)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+  marginTop: "0.5rem",
+};
+
+const photoFieldHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  fontSize: "0.8rem",
+  color: "rgba(226, 232, 240, 0.9)",
+};
+
+const photoPreviewStyle = {
+  width: "100%",
+  height: "180px",
+  borderRadius: "16px",
+  border: "1px dashed rgba(148, 163, 184, 0.5)",
+  backgroundColor: "rgba(15, 23, 42, 0.35)",
+  overflow: "hidden",
+  position: "relative",
+};
+
+const photoPreviewGridStyle = {
+  width: "100%",
+  minHeight: "180px",
+  borderRadius: "16px",
+  border: "1px dashed rgba(148, 163, 184, 0.5)",
+  backgroundColor: "rgba(15, 23, 42, 0.35)",
+  overflow: "hidden",
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "0.35rem",
+  padding: "0.35rem",
+  position: "relative",
+};
+
+const photoPreviewImageStyle = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  display: "block",
+};
+
+const photoPreviewPlaceholderStyle = {
+  position: "absolute",
+  inset: 0,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "0.35rem",
+  color: "rgba(226, 232, 240, 0.8)",
+  fontSize: "0.85rem",
+  textAlign: "center",
+};
+
+const photoPreviewMoreBadgeStyle = {
+  position: "absolute",
+  bottom: "0.4rem",
+  right: "0.6rem",
+  backgroundColor: "rgba(15, 23, 42, 0.8)",
+  borderRadius: "999px",
+  padding: "0.2rem 0.7rem",
+  fontSize: "0.8rem",
+  color: "#f8fafc",
+  border: "1px solid rgba(148, 163, 184, 0.4)",
+};
+
 const typeSplitGridStyle = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
@@ -1851,6 +2224,119 @@ const typeSplitMetricValueStyle = {
   fontSize: "0.95rem",
   fontWeight: 600,
   color: "#f8fafc",
+};
+
+const infoHeroStyle = {
+  padding: "1.5rem",
+  borderRadius: "18px",
+  border: "1px solid rgba(96, 165, 250, 0.35)",
+  background: "linear-gradient(120deg, rgba(37,99,235,0.35), rgba(8,47,73,0.65))",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "1rem",
+  flexWrap: "wrap",
+};
+
+const infoHeroTextStyle = {
+  color: "rgba(226, 232, 240, 0.85)",
+  maxWidth: "600px",
+};
+
+const infoHeroBadgeStyle = {
+  padding: "0.4rem 1.1rem",
+  borderRadius: "999px",
+  border: "1px solid rgba(148, 163, 184, 0.4)",
+  color: "#bfdbfe",
+  fontWeight: 600,
+};
+
+const infoGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "0.8rem",
+};
+
+const infoCardStyle = {
+  padding: "1rem",
+  borderRadius: "14px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.55)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.35rem",
+};
+
+const infoCardTitleStyle = {
+  margin: 0,
+  color: "#f8fafc",
+  fontSize: "0.95rem",
+};
+
+const infoCardTextStyle = {
+  margin: 0,
+  color: "rgba(226, 232, 240, 0.75)",
+  fontSize: "0.85rem",
+};
+
+const infoChecklistStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(96, 165, 250, 0.3)",
+  backgroundColor: "rgba(15, 23, 42, 0.65)",
+  padding: "1rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.6rem",
+};
+
+const infoChecklistListStyle = {
+  listStyle: "none",
+  padding: 0,
+  margin: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.4rem",
+  color: "rgba(226, 232, 240, 0.85)",
+  fontSize: "0.85rem",
+};
+
+const valuationIntroStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(96, 165, 250, 0.35)",
+  padding: "1.2rem",
+  backgroundColor: "rgba(15, 23, 42, 0.55)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+};
+
+const valuationSummaryGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0.8rem",
+};
+
+const valuationScenarioStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.5)",
+  padding: "1rem",
+};
+
+const valuationScenarioGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0.75rem",
+};
+
+const valuationScenarioCardStyle = {
+  borderRadius: "14px",
+  border: "1px solid rgba(148, 163, 184, 0.2)",
+  padding: "0.9rem",
+  backgroundColor: "rgba(3, 7, 18, 0.5)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
 };
 
 export default App;
