@@ -1,8 +1,89 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import aimLogo from "./assets/aim-logo.svg";
+import PortfolioStrip from "./components/PortfolioStrip";
 
 const STORAGE_KEY = "brickplan-properties-v1";
+const USER_KEY = "aim-realestate-user";
+const generateVerificationCode = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
+
+const numberFields = [
+  "purchasePrice",
+  "equity",
+  "rent",
+  "expenses",
+  "interestRate",
+  "loanYears",
+  "brokerPercent",
+  "otherCostsPercent",
+  "loanAmount",
+  "monthlyLoanPayment",
+  "monthlyCashflow",
+  "grossYield",
+  "equityReturn",
+  "brokerFee",
+  "otherBuyingCosts",
+  "totalPurchaseCosts",
+  "totalInvestment",
+];
+
+const toNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const createPhotoEntry = (photo, fallbackId = null) => {
+  if (!photo) return null;
+  if (typeof photo === "string") {
+    return {
+      id: fallbackId || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      src: photo,
+      category: "Sonstiges",
+      note: "",
+    };
+  }
+  const src = photo.src || photo.url || "";
+  if (!src) return null;
+  return {
+    id: photo.id || fallbackId || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    src,
+    category: photo.category || photo.type || "Sonstiges",
+    note: photo.note || photo.description || "",
+  };
+};
+
+const normalizeProperty = (raw) => {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const normalized = {
+    ...raw,
+    propertyType: raw.propertyType || "wohnung",
+    strategy: raw.strategy || "buy_and_hold",
+    photos: [],
+  };
+
+  numberFields.forEach((field) => {
+    normalized[field] = toNumber(raw[field]);
+  });
+
+  const rawPhotos = Array.isArray(raw.photos)
+    ? raw.photos
+    : raw.photoEntries
+    ? raw.photoEntries
+    : raw.photoUrl
+    ? [raw.photoUrl]
+    : [];
+
+  normalized.photos = rawPhotos
+    .map((photo, index) => createPhotoEntry(photo, `${raw.id || "photo"}-${index}`))
+    .filter(Boolean)
+    .map(({ id, ...rest }) => rest);
+
+  return normalized;
+};
 
 const initialFormState = {
   title: "",
@@ -17,18 +98,144 @@ const initialFormState = {
   propertyType: "wohnung",
   strategy: "buy_and_hold",
   photoUrls: "",
+  photoEntries: [],
 };
 
 const PROPERTY_FILTERS = [
   { value: "all", label: "Alle" },
   { value: "wohnung", label: "Wohnungen" },
   { value: "haus", label: "Häuser" },
-  { value: "sanierung", label: "Sanierung" },
-  { value: "gewerbe", label: "Gewerbe" },
+  { value: "garage", label: "Garagen" },
+];
+
+const RENOVATION_AREA_OPTIONS = [
+  { value: "kitchen", label: "Küche" },
+  { value: "bathroom", label: "Bad" },
+  { value: "livingroom", label: "Wohnzimmer" },
+  { value: "bedroom", label: "Schlafzimmer" },
+  { value: "flooring", label: "Bodenbeläge" },
+  { value: "facade", label: "Fassade" },
+  { value: "electrics", label: "Elektrik" },
+  { value: "sanitary", label: "Sanitär" },
+  { value: "other", label: "Sonstiges" },
+];
+
+const RENOVATION_AREA_PRESETS = {
+  kitchen: { label: "Küche", min: 7000, max: 12000 },
+  bathroom: { label: "Bad", min: 6000, max: 11000 },
+  livingroom: { label: "Wohnzimmer", min: 3500, max: 7000 },
+  bedroom: { label: "Schlafzimmer", min: 3000, max: 6000 },
+  flooring: { label: "Bodenbeläge", min: 2500, max: 5500 },
+  facade: { label: "Fassade", min: 8000, max: 15000 },
+  electrics: { label: "Elektrik", min: 4000, max: 9000 },
+  sanitary: { label: "Sanitär", min: 3500, max: 8000 },
+  other: { label: "Sonstiger Bereich", min: 2500, max: 5000 },
+};
+
+const REGION_DATA = {
+  wien: {
+    label: "Wien",
+    averagePrice: 5200,
+    minPrice: 3800,
+    maxPrice: 8200,
+    districts: [
+      { value: "1010", label: "01 · Innere Stadt", price: 8200 },
+      { value: "1020", label: "02 · Leopoldstadt", price: 6400 },
+      { value: "1030", label: "03 · Landstraße", price: 5900 },
+      { value: "1040", label: "04 · Wieden", price: 6100 },
+      { value: "1050", label: "05 · Margareten", price: 5400 },
+      { value: "1060", label: "06 · Mariahilf", price: 6100 },
+      { value: "1070", label: "07 · Neubau", price: 6200 },
+      { value: "1080", label: "08 · Josefstadt", price: 6000 },
+      { value: "1090", label: "09 · Alsergrund", price: 5900 },
+      { value: "1100", label: "10 · Favoriten", price: 4600 },
+      { value: "1110", label: "11 · Simmering", price: 4200 },
+      { value: "1120", label: "12 · Meidling", price: 4700 },
+      { value: "1130", label: "13 · Hietzing", price: 5200 },
+      { value: "1140", label: "14 · Penzing", price: 4300 },
+      { value: "1150", label: "15 · Rudolfsheim-Fünfhaus", price: 4500 },
+      { value: "1160", label: "16 · Ottakring", price: 4400 },
+      { value: "1170", label: "17 · Hernals", price: 4600 },
+      { value: "1180", label: "18 · Währing", price: 5400 },
+      { value: "1190", label: "19 · Döbling", price: 6100 },
+      { value: "1200", label: "20 · Brigittenau", price: 4800 },
+      { value: "1210", label: "21 · Floridsdorf", price: 4200 },
+      { value: "1220", label: "22 · Donaustadt", price: 4500 },
+      { value: "1230", label: "23 · Liesing", price: 4300 },
+    ],
+  },
+  niederoesterreich: {
+    label: "Niederösterreich",
+    averagePrice: 3200,
+    minPrice: 2100,
+    maxPrice: 4200,
+    districts: [
+      { value: "stpoelten", label: "St. Pölten Stadt", price: 3500 },
+      { value: "moedling", label: "Mödling", price: 4100 },
+      { value: "korneuburg", label: "Korneuburg", price: 3600 },
+      { value: "krems", label: "Krems Stadt", price: 3300 },
+      { value: "wrneustadt", label: "Wiener Neustadt", price: 3000 },
+    ],
+  },
+  steiermark: {
+    label: "Steiermark",
+    averagePrice: 3100,
+    minPrice: 1900,
+    maxPrice: 4300,
+    districts: [
+      { value: "graz", label: "Graz Stadt", price: 3900 },
+      { value: "graz-umgebung", label: "Graz Umgebung", price: 3200 },
+      { value: "leoben", label: "Leoben", price: 2500 },
+      { value: "bruckmur", label: "Bruck-Mürzzuschlag", price: 2400 },
+      { value: "liezen", label: "Liezen", price: 2200 },
+    ],
+  },
+};
+
+const CONDITION_FACTORS = {
+  neubau: 1.1,
+  sehr_gut: 1.0,
+  gut: 0.95,
+  sanierungsbeduerftig: 0.85,
+  kernsanierung: 0.7,
+};
+
+const PROPERTY_TYPE_FACTORS = {
+  wohnung: 1,
+  haus: 1.05,
+  sonstiges: 0.9,
+};
+
+const YEAR_FACTOR_RULES = [
+  { maxYear: 1980, factor: 0.9 },
+  { maxYear: 2000, factor: 0.95 },
+  { maxYear: 2014, factor: 1 },
+  { maxYear: 2019, factor: 1.03 },
+  { maxYear: Infinity, factor: 1.08 },
+];
+
+const NAV_TABS = [
+  { key: "info", label: "Allgemein" },
+  { key: "properties", label: "Immobilien" },
+  { key: "analysis", label: "Analyse" },
+  { key: "renovation", label: "Renovierung" },
+  { key: "overview", label: "Dashboard" },
+  { key: "profile", label: "Profil" },
 ];
 
 function App() {
   const [formData, setFormData] = useState(initialFormState);
+  const [userProfile, setUserProfile] = useState(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(USER_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.email ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
   const [properties, setProperties] = useState(() => {
     if (typeof window === "undefined") {
       return [];
@@ -38,16 +245,9 @@ function App() {
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed)
-        ? parsed.map((p) => ({
-            ...p,
-            propertyType: p.propertyType || "wohnung",
-            strategy: p.strategy || "buy_and_hold",
-            photos: Array.isArray(p.photos)
-              ? p.photos
-              : p.photoUrl
-              ? [p.photoUrl]
-              : [],
-          }))
+        ? parsed
+            .map((p) => normalizeProperty(p))
+            .filter((item) => item !== null)
         : [];
     } catch {
       return [];
@@ -57,6 +257,8 @@ function App() {
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [activeTab, setActiveTab] = useState("info");
   const [propertyFilter, setPropertyFilter] = useState("all");
+  const [editingPropertyId, setEditingPropertyId] = useState(null);
+  const [pendingVerification, setPendingVerification] = useState(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -66,6 +268,15 @@ function App() {
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(properties));
   }, [properties]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!userProfile) {
+      window.localStorage.removeItem(USER_KEY);
+      return;
+    }
+    window.localStorage.setItem(USER_KEY, JSON.stringify(userProfile));
+  }, [userProfile]);
 
   const handleFormChange = useCallback((field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -130,6 +341,12 @@ function App() {
     });
   }, [formData]);
 
+  const resetFormToInitial = useCallback(() => {
+    setFormData({ ...initialFormState, photoEntries: [], photoUrls: "" });
+    setResults(null);
+    setEditingPropertyId(null);
+  }, []);
+
   const handleAddToList = useCallback(() => {
     if (!results) {
       alert("Bitte zuerst auf „Berechnen“ klicken.");
@@ -140,16 +357,36 @@ function App() {
       return;
     }
 
+    const uploadedPhotos =
+      formData.photoEntries && formData.photoEntries.length > 0
+        ? formData.photoEntries
+            .filter((entry) => entry && entry.src)
+            .map(({ src, category, note }) => ({
+              src,
+              category: category || "Sonstiges",
+              note: note || "",
+            }))
+        : [];
+
+    const linkedPhotos =
+      formData.photoUrls
+        .split(/[\n,]/)
+        .map((url) => url.trim())
+        .filter(Boolean)
+        .map((url) => ({
+          src: url,
+          category: "Sonstiges",
+          note: "",
+        })) || [];
+
+    const combinedPhotos = [...uploadedPhotos, ...linkedPhotos];
+
     const newProperty = {
-      id: Date.now(),
+      id: editingPropertyId || Date.now(),
       title: formData.title.trim(),
       propertyType: formData.propertyType,
       strategy: formData.strategy,
-      photos:
-        formData.photoUrls
-          .split(/[\n,]/)
-          .map((url) => url.trim())
-          .filter(Boolean) || [],
+      photos: combinedPhotos,
       purchasePrice: Number(formData.purchasePrice) || 0,
       equity: Number(formData.equity) || 0,
       rent: Number(formData.rent) || 0,
@@ -161,13 +398,73 @@ function App() {
       ...results,
     };
 
-    setProperties((prev) => [...prev, newProperty]);
-  }, [formData, results]);
+    const normalizedProperty = normalizeProperty(newProperty);
 
-  const handleDelete = useCallback((id) => {
-    setProperties((prev) => prev.filter((p) => p.id !== id));
-    setSelectedProperty((prev) => (prev && prev.id === id ? null : prev));
-  }, []);
+    setProperties((prev) => {
+      if (editingPropertyId) {
+        return prev.map((prop) => (prop.id === editingPropertyId ? normalizedProperty : prop));
+      }
+      return [...prev, normalizedProperty];
+    });
+    resetFormToInitial();
+  }, [formData, results, editingPropertyId, resetFormToInitial]);
+
+  const handleDelete = useCallback(
+    (id) => {
+      setProperties((prev) => prev.filter((p) => p.id !== id));
+      setSelectedProperty((prev) => (prev && prev.id === id ? null : prev));
+      if (editingPropertyId === id) {
+        resetFormToInitial();
+      } else {
+        setEditingPropertyId((prev) => (prev === id ? null : prev));
+      }
+    },
+    [editingPropertyId, resetFormToInitial]
+  );
+
+  const handleEditProperty = useCallback(
+    (property) => {
+      if (!property) return;
+      setActiveTab("properties");
+      setEditingPropertyId(property.id);
+      setFormData({
+        title: property.title || "",
+        propertyType: property.propertyType || "wohnung",
+        strategy: property.strategy || "buy_and_hold",
+        photoUrls: (property.photos || [])
+          .map((photo) => (typeof photo === "string" ? photo : photo?.src || ""))
+          .filter(Boolean)
+          .join("\n"),
+        photoEntries: (property.photos || [])
+          .map((photo, index) => createPhotoEntry(photo, `${property.id}-${index}`))
+          .filter(Boolean),
+        purchasePrice: property.purchasePrice?.toString() || "",
+        equity: property.equity?.toString() || "",
+        rent: property.rent?.toString() || "",
+        expenses: property.expenses?.toString() || "",
+        interestRate: property.interestRate?.toString() || "",
+        loanYears: property.loanYears?.toString() || "",
+        brokerPercent: property.brokerPercent?.toString() || "3",
+        otherCostsPercent: property.otherCostsPercent?.toString() || "4.5",
+      });
+      setResults({
+        loanAmount: property.loanAmount || 0,
+        monthlyLoanPayment: property.monthlyLoanPayment || 0,
+        monthlyCashflow: property.monthlyCashflow || 0,
+        grossYield: property.grossYield || 0,
+        equityReturn: property.equityReturn || 0,
+        brokerFee: property.brokerFee || 0,
+        otherBuyingCosts: property.otherBuyingCosts || 0,
+        totalPurchaseCosts: property.totalPurchaseCosts || 0,
+        totalInvestment: property.totalInvestment || 0,
+      });
+    },
+    [setActiveTab, setEditingPropertyId, setFormData, setResults]
+  );
+
+  const handleCancelEdit = useCallback(() => {
+    resetFormToInitial();
+  }, [resetFormToInitial]);
 
   const handleClearAll = useCallback(() => {
     const sure = window.confirm(
@@ -195,6 +492,16 @@ function App() {
 
     URL.revokeObjectURL(url);
   }, [properties]);
+
+const handleRegister = useCallback((profile) => {
+    setUserProfile(profile);
+  }, []);
+
+  const handleSignOut = useCallback(() => {
+    const sure = window.confirm("Möchtest du dich wirklich abmelden? Deine Daten bleiben im Browser erhalten.");
+    if (!sure) return;
+    setUserProfile(null);
+  }, []);
 
   const {
     totalCashflow,
@@ -245,7 +552,11 @@ function App() {
     return { bestByEquity: bestEquity, bestByCashflow: bestCashflow };
   }, [properties]);
 
-  const propertyTypeStats = useMemo(() => {
+  const handleUpdateProfile = useCallback((updates) => {
+    setUserProfile((prev) => ({ ...(prev || {}), ...updates }));
+  }, []);
+
+const propertyTypeStats = useMemo(() => {
     return properties.reduce(
       (acc, prop) => {
         const typeKey = prop.propertyType || "wohnung";
@@ -332,77 +643,79 @@ function App() {
     return { sortedByEquity, sortedByCashflow, maxEquityReturn, maxAbsCashflow };
   }, [properties]);
 
+  if (!userProfile) {
+    if (pendingVerification) {
+      return (
+        <VerificationScreen
+          draft={pendingVerification.draft}
+          code={pendingVerification.code}
+          onVerify={(input) => {
+            if (input.trim() === pendingVerification.code) {
+              handleRegister(pendingVerification.draft);
+              setPendingVerification(null);
+              return true;
+            }
+            return false;
+          }}
+          onResend={() => {
+            const newCode = generateVerificationCode();
+            setPendingVerification((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    code: newCode,
+                  }
+                : null
+            );
+          }}
+          onCancel={() => setPendingVerification(null)}
+        />
+      );
+    }
+    return (
+      <RegistrationScreen
+        onRegister={(draft) => {
+          setPendingVerification({
+            draft,
+            code: generateVerificationCode(),
+          });
+        }}
+      />
+    );
+  }
+
   return (
     <div style={pageStyle} className="app-page">
       <div style={cardStyle} className="app-root-card">
         <BrandBar />
         <nav style={navStyle} className="app-nav">
-          <button
-            type="button"
-            className={`nav-pill ${activeTab === "info" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("info")}
-          >
-            Info
-          </button>
-          <button
-            type="button"
-            className={`nav-pill ${activeTab === "overview" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("overview")}
-          >
-            Dashboard
-          </button>
-          <button
-            type="button"
-            className={`nav-pill ${activeTab === "properties" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("properties")}
-          >
-            Immobilien
-          </button>
-          <button
-            type="button"
-            className={`nav-pill ${activeTab === "analytics" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("analytics")}
-          >
-            Analysen
-          </button>
-          <button
-            type="button"
-            className={`nav-pill ${activeTab === "settings" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("settings")}
-          >
-            Einstellungen
-          </button>
-          <button
-            type="button"
-            className={`nav-pill ${activeTab === "valuation" ? "is-active" : ""}`}
-            onClick={() => setActiveTab("valuation")}
-          >
-            Bewertung
-          </button>
+          {NAV_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`nav-pill ${activeTab === tab.key ? "is-active" : ""}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
-
-        <PortfolioStrip
-          propertiesCount={propertiesCount}
-          totalCashflow={totalCashflow}
-          avgGrossYield={avgGrossYield}
-          avgEquityReturn={avgEquityReturn}
-        />
 
         <header style={headerStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <img
-              src={aimLogo}
-              alt="AIM Real Estate Logo"
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: "12px",
-                boxShadow: "0 10px 22px rgba(15, 23, 42, 0.55)",
-                flexShrink: 0,
-              }}
-            />
+  <img
+    src={aimLogo}
+    alt="AIM RealEstate Analytics Logo"
+    style={{
+      width: 44,
+      height: 44,
+      borderRadius: "12px",
+      boxShadow: "0 10px 22px rgba(15, 23, 42, 0.55)",
+      flexShrink: 0,
+    }}
+  />
             <div>
-              <h1 style={titleStyle}>AIM Real Estate</h1>
+              <h1 style={titleStyle}>AIM RealEstate Analytics</h1>
               <p style={subtitleStyle}>
                 Präzise Analyse für smarte Immobilien-Investments.
               </p>
@@ -412,21 +725,28 @@ function App() {
           <div style={headerRightStyle}>
             <div style={{ textAlign: "right", marginRight: "0.5rem" }}>
               <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Firma</div>
-              <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>
-                AIM Real Estate
-              </div>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+        {userProfile?.company || userProfile?.name || "AIM RealEstate Analytics"}
+      </div>
             </div>
             <span style={badgeStyle}>MVP · v0.5</span>
-            <button type="button" onClick={handleClearAll} style={linkButtonStyle}>
-              Alles löschen
+            <button type="button" onClick={() => setActiveTab("profile")} style={ghostButtonStyle}>
+              Profil
+            </button>
+            <button type="button" onClick={handleSignOut} style={ghostButtonStyle}>
+              Abmelden
             </button>
           </div>
         </header>
 
-        {activeTab === "info" && <InfoTab />}
-
         {activeTab === "overview" && (
           <>
+            <PortfolioStrip
+              propertiesCount={propertiesCount}
+              totalCashflow={totalCashflow}
+              avgGrossYield={avgGrossYield}
+              avgEquityReturn={avgEquityReturn}
+            />
             <OverviewSection
               propertiesCount={propertiesCount}
               totalCashflow={totalCashflow}
@@ -434,19 +754,12 @@ function App() {
               avgEquityReturn={avgEquityReturn}
               propertyTypeBreakdown={propertyTypeBreakdown}
             />
-            <MainAndList
-              formData={formData}
-              onFormChange={handleFormChange}
-              onCalculate={handleCalculate}
-              onAddToList={handleAddToList}
-              results={results}
+            <AnalyticsSection
+              bestByEquity={bestByEquity}
+              bestByCashflow={bestByCashflow}
+              analyticsData={analyticsData}
+              propertiesCount={propertiesCount}
               properties={properties}
-              onDelete={handleDelete}
-              selectedProperty={selectedProperty}
-              onSelectProperty={setSelectedProperty}
-              propertyFilter={propertyFilter}
-              onFilterChange={setPropertyFilter}
-              propertyTypeStats={propertyTypeStats}
             />
           </>
         )}
@@ -465,28 +778,29 @@ function App() {
             propertyFilter={propertyFilter}
             onFilterChange={setPropertyFilter}
             propertyTypeStats={propertyTypeStats}
+            onEditProperty={handleEditProperty}
+            onCancelEdit={handleCancelEdit}
+            isEditing={Boolean(editingPropertyId)}
           />
         )}
 
-        {activeTab === "analytics" && (
-          <AnalyticsSection
-            bestByEquity={bestByEquity}
-            bestByCashflow={bestByCashflow}
-            analyticsData={analyticsData}
-            propertiesCount={propertiesCount}
+        {activeTab === "analysis" && <MarketAnalysisTab />}
+
+        {activeTab === "renovation" && <RenovationCoachTab properties={properties} />}
+
+        {activeTab === "info" && (
+          <InfoTab
+            onStart={() => setActiveTab("properties")}
+            userName={userProfile?.name || userProfile?.email}
           />
         )}
 
-{activeTab === "valuation" && (
-  <ValuationTab
-    formData={formData}
-    results={results}
-    onCalculate={handleCalculate}
-  />
-)}
-
-        {activeTab === "settings" && (
-          <SettingsSection onExportJson={handleExportJson} />
+        {activeTab === "profile" && (
+          <ProfileSection
+            userProfile={userProfile}
+            onUpdateProfile={setUserProfile}
+            onExportJson={handleExportJson}
+          />
         )}
       </div>
     </div>
@@ -533,114 +847,14 @@ function OverviewSection({
   );
 }
 
-function InfoTab() {
-  return (
-    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <div style={infoHeroStyle}>
-        <div>
-          <h2 style={{ ...sectionTitleStyle, fontSize: "1.4rem" }}>Willkommen bei AIM Real Estate</h2>
-          <p style={infoHeroTextStyle}>
-            AIM Real Estate ist dein persönlicher Deal-Copilot. Erfasse Wohnungen, Häuser oder
-            Sanierungen, optimiere Cashflow und Rendite und exportiere Portfolios als JSON.
-          </p>
-        </div>
-        <div style={infoHeroBadgeStyle}>Beta · v0.5</div>
-      </div>
 
-      <div style={infoGridStyle}>
-        <InfoCard
-          title="1 · Deal anlegen"
-          body="Trage Eckdaten wie Kaufpreis, Eigenkapital oder Miete ein. Optional kannst du mehrere Fotos hinzufügen, um dein Objekt visuell festzuhalten."
-        />
-        <InfoCard
-          title="2 · Kennzahlen prüfen"
-          body="Mit einem Klick auf „Berechnen“ erhältst du Cashflow, Renditen und Nebenkosten. Die neue Bewertungs-Ansicht zeigt Szenarien (Worst/Real/Best)."
-        />
-        <InfoCard
-          title="3 · Analysieren & Exportieren"
-          body="Vergleiche dein Portfolio im Dashboard, nutze den Analytics-Tab für Rankings und exportiere alles als JSON-Datei."
-        />
-      </div>
-
-      <div style={infoChecklistStyle}>
-        <h3 style={{ margin: 0, fontSize: "1rem", color: "#f8fafc" }}>Was du wissen solltest</h3>
-        <ul style={infoChecklistListStyle}>
-          <li>⚡ Keine Registrierung – alles bleibt im Browser (localStorage).</li>
-          <li>🧮 Renditen basieren auf deinen Annahmen. Passe sie jederzeit an.</li>
-          <li>📤 Exportfunktion findet sich im Tab „Einstellungen“.</li>
-          <li>🔐 Deine Daten verlassen den Browser nur, wenn du sie exportierst.</li>
-        </ul>
-        <button type="button" style={primaryButtonStyle} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-          Zum Dashboard wechseln
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function InfoCard({ title, body }) {
-  return (
-    <div style={infoCardStyle}>
-      <h4 style={infoCardTitleStyle}>{title}</h4>
-      <p style={infoCardTextStyle}>{body}</p>
-    </div>
-  );
-}
-
-function PortfolioStrip({
-  propertiesCount,
-  totalCashflow,
-  avgGrossYield,
-  avgEquityReturn,
-}) {
-  return (
-    <div style={portfolioStripStyle} className="portfolio-strip">
-      <div style={portfolioItemStyle}>
-        <div style={portfolioLabelStyle}>Immobilien im Portfolio</div>
-        <div style={portfolioValueStyle}>{propertiesCount}</div>
-        <div style={portfolioSubLabelStyle}>Gespeicherte Deals</div>
-      </div>
-
-      <div style={portfolioItemStyle}>
-        <div style={portfolioLabelStyle}>Gesamt-Cashflow / Monat</div>
-        <div
-          style={{
-            ...portfolioValueStyle,
-            color: totalCashflow >= 0 ? "#22c55e" : "#f97373",
-          }}
-        >
-          {totalCashflow.toFixed(2)} €
-        </div>
-        <div style={portfolioSubLabelStyle}>
-          {totalCashflow >= 0 ? "Positiver Cashflow" : "Negativer Cashflow"}
-        </div>
-      </div>
-
-      <div style={portfolioItemStyle}>
-        <div style={portfolioLabelStyle}>Ø EK-Rendite</div>
-        <div style={portfolioValueStyle}>
-          {propertiesCount === 0 ? "—" : `${avgEquityReturn.toFixed(2)} %`}
-        </div>
-        <div style={portfolioSubLabelStyle}>Basierend auf allen Deals</div>
-      </div>
-
-      <div style={portfolioItemStyle}>
-        <div style={portfolioLabelStyle}>Ø Bruttorendite</div>
-        <div style={portfolioValueStyle}>
-          {propertiesCount === 0 ? "—" : `${avgGrossYield.toFixed(2)} %`}
-        </div>
-        <div style={portfolioSubLabelStyle}>KP inkl. Nebenkosten</div>
-      </div>
-    </div>
-  );
-}
 
 function BrandBar() {
   return (
     <div style={brandBarStyle}>
       <div style={brandBarLeftStyle}>
         <span style={brandDotStyle} />
-        <span style={brandBarTextStyle}>AIM Real Estate</span>
+        <span style={brandBarTextStyle}>AIM RealEstate Analytics</span>
       </div>
       <div style={brandBarRightStyle}>
         <span style={brandEnvStyle}>App</span>
@@ -663,12 +877,16 @@ function MainAndList({
   propertyFilter,
   onFilterChange,
   propertyTypeStats,
+  onEditProperty,
+  onCancelEdit,
+  isEditing,
 }) {
   const {
     title,
     propertyType,
     strategy,
     photoUrls,
+    photoEntries,
     purchasePrice,
     equity,
     rent,
@@ -699,6 +917,14 @@ function MainAndList({
       <div style={mainGridStyle} className="main-grid">
         <section style={formCardStyle}>
           <h2 style={sectionTitleStyle}>Immobilie anlegen</h2>
+          {isEditing && (
+            <div style={editBannerStyle}>
+              <span>Bearbeitung aktiv{formData.title ? `: ${formData.title}` : ""}</span>
+              <button type="button" style={editBannerLinkStyle} onClick={onCancelEdit}>
+                Abbrechen
+              </button>
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div>
               <label style={labelStyle} htmlFor="title-input">
@@ -727,8 +953,7 @@ function MainAndList({
               >
                 <option value="wohnung">Wohnung</option>
                 <option value="haus">Haus</option>
-                <option value="sanierung">Sanierungsobjekt</option>
-                <option value="gewerbe">Gewerbe</option>
+                <option value="garage">Garage</option>
               </select>
             </div>
 
@@ -749,7 +974,12 @@ function MainAndList({
               </select>
             </div>
 
-            <PhotoField value={photoUrls} onChange={(val) => onFormChange("photoUrls", val)} />
+            <PhotoField
+              value={photoUrls}
+              onChange={(val) => onFormChange("photoUrls", val)}
+              entries={photoEntries}
+              onEntriesChange={(items) => onFormChange("photoEntries", items)}
+            />
 
             <Field
               name="purchasePrice"
@@ -817,8 +1047,13 @@ function MainAndList({
                 type="button"
                 onClick={onAddToList}
               >
-                Zur Liste hinzufügen
+                {isEditing ? "Änderungen speichern" : "Zur Liste hinzufügen"}
               </button>
+              {isEditing && (
+                <button type="button" style={tertiaryButtonStyle} onClick={onCancelEdit}>
+                  Eingaben zurücksetzen
+                </button>
+              )}
             </div>
           </div>
         </section>
@@ -921,16 +1156,28 @@ function MainAndList({
                     <Td>{prop.grossYield.toFixed(2)} %</Td>
                     <Td>{prop.equityReturn.toFixed(2)} %</Td>
                     <Td>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(prop.id);
-                        }}
-                        style={smallLinkButtonStyle}
-                      >
-                        Entfernen
-                      </button>
+                      <div style={tableActionsStyle}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditProperty(prop);
+                          }}
+                          style={smallLinkButtonStyle}
+                        >
+                          Bearbeiten
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(prop.id);
+                          }}
+                          style={smallLinkButtonStyle}
+                        >
+                          Entfernen
+                        </button>
+                      </div>
                     </Td>
                   </tr>
                 ))}
@@ -953,18 +1200,28 @@ function MainAndList({
           </h3>
           {selectedProperty.photos && selectedProperty.photos.length > 0 && (
             <div style={detailGalleryStyle}>
-              {selectedProperty.photos.map((photo, index) => (
-                <div key={photo + index} style={detailImageWrapperStyle}>
-                  <img
-                    src={photo}
-                    alt={`Foto ${index + 1} von ${selectedProperty.title}`}
-                    style={detailImageStyle}
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                </div>
-              ))}
+              {selectedProperty.photos.map((photo, index) => {
+                const meta = toPhotoObject(photo);
+                if (!meta.src) return null;
+                return (
+                  <div key={`${selectedProperty.id}-photo-${index}`} style={detailImageWrapperStyle}>
+                    <img
+                      src={meta.src}
+                      alt={`Foto ${index + 1} von ${selectedProperty.title}`}
+                      style={detailImageStyle}
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                    {(meta.category || meta.note) && (
+                      <div style={photoTagStyle}>
+                        <strong>{meta.category || "Foto"}</strong>
+                        {meta.note && <span style={{ display: "block", fontWeight: 400 }}>{meta.note}</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
           <div
@@ -978,57 +1235,57 @@ function MainAndList({
             <DetailItem label="Strategie" value={formatStrategy(selectedProperty.strategy)} />
             <DetailItem
               label="Kaufpreis"
-              value={`${selectedProperty.purchasePrice.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.purchasePrice)} €`}
             />
-            <DetailItem label="Eigenkapital" value={`${selectedProperty.equity.toFixed(2)} €`} />
+            <DetailItem label="Eigenkapital" value={`${safeFixed(selectedProperty.equity)} €`} />
             <DetailItem
               label="Mieteinnahmen / Monat"
-              value={`${selectedProperty.rent.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.rent)} €`}
             />
             <DetailItem
               label="Monatliche Kosten"
-              value={`${selectedProperty.expenses.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.expenses)} €`}
             />
             <DetailItem
               label="Zinssatz p.a."
-              value={`${selectedProperty.interestRate.toFixed(2)} %`}
+              value={`${safeFixed(selectedProperty.interestRate)} %`}
             />
-            <DetailItem label="Laufzeit" value={`${selectedProperty.loanYears.toFixed(0)} Jahre`} />
+            <DetailItem label="Laufzeit" value={`${safeFixed(selectedProperty.loanYears, 0)} Jahre`} />
             <DetailItem
               label="Maklerprovision (%)"
-              value={`${selectedProperty.brokerPercent.toFixed(2)} %`}
+              value={`${safeFixed(selectedProperty.brokerPercent)} %`}
             />
             <DetailItem
               label="Sonstige Nebenkosten (%)"
-              value={`${selectedProperty.otherCostsPercent.toFixed(2)} %`}
+              value={`${safeFixed(selectedProperty.otherCostsPercent)} %`}
             />
             <DetailItem
               label="Maklerprovision (Betrag)"
-              value={`${selectedProperty.brokerFee.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.brokerFee)} €`}
             />
             <DetailItem
               label="Sonstige Kaufnebenkosten"
-              value={`${selectedProperty.otherBuyingCosts.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.otherBuyingCosts)} €`}
             />
             <DetailItem
               label="Gesamte Kaufnebenkosten"
-              value={`${selectedProperty.totalPurchaseCosts.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.totalPurchaseCosts)} €`}
             />
             <DetailItem
               label="Gesamtinvestition (KP + Nebenkosten)"
-              value={`${selectedProperty.totalInvestment.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.totalInvestment)} €`}
             />
-            <DetailItem label="Kreditbetrag" value={`${selectedProperty.loanAmount.toFixed(2)} €`} />
+            <DetailItem label="Kreditbetrag" value={`${safeFixed(selectedProperty.loanAmount)} €`} />
             <DetailItem
               label="Monatliche Kreditrate"
-              value={`${selectedProperty.monthlyLoanPayment.toFixed(2)} €`}
+              value={`${safeFixed(selectedProperty.monthlyLoanPayment)} €`}
             />
             <DetailItem
               label="Monatlicher Cashflow"
-              value={`${selectedProperty.monthlyCashflow.toFixed(2)} € / Monat`}
+              value={`${safeFixed(selectedProperty.monthlyCashflow)} € / Monat`}
             />
-            <DetailItem label="Bruttorendite" value={`${selectedProperty.grossYield.toFixed(2)} %`} />
-            <DetailItem label="Eigenkapitalrendite" value={`${selectedProperty.equityReturn.toFixed(2)} %`} />
+            <DetailItem label="Bruttorendite" value={`${safeFixed(selectedProperty.grossYield)} %`} />
+            <DetailItem label="Eigenkapitalrendite" value={`${safeFixed(selectedProperty.equityReturn)} %`} />
           </div>
           <button
             type="button"
@@ -1043,30 +1300,1372 @@ function MainAndList({
   );
 }
 
-function PhotoField({ value, onChange }) {
+function RenovationCoachTab({ properties }) {
+  const hasPhotos = properties.some((p) => p.photos && p.photos.length > 0);
+  const [meta, setMeta] = useState({
+    objectName: "",
+    totalArea: "",
+    state: "wien",
+    district: REGION_DATA.wien.districts[0].value,
+    notes: "",
+  });
+  const [areaDraft, setAreaDraft] = useState({
+    type: "kitchen",
+    description: "",
+    photos: [],
+  });
+  const [areas, setAreas] = useState([]);
+  const [estimation, setEstimation] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [error, setError] = useState("");
+
+  const districtOptions = REGION_DATA[meta.state]?.districts || [];
+
+  const handleMetaChange = (field, value) => {
+    setMeta((prev) => {
+      if (field === "state") {
+        const nextDistrict = REGION_DATA[value]?.districts?.[0]?.value || "";
+        return { ...prev, state: value, district: nextDistrict };
+      }
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleDraftChange = (field, value) => {
+    setAreaDraft((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleDraftPhotos = (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const src = loadEvent.target?.result?.toString();
+        if (!src) return;
+        setAreaDraft((prev) => ({
+          ...prev,
+          photos: [
+            ...prev.photos,
+            { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, src, name: file.name },
+          ],
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = "";
+  };
+
+  const handleRemoveDraftPhoto = (id) => {
+    setAreaDraft((prev) => ({
+      ...prev,
+      photos: prev.photos.filter((photo) => photo.id !== id),
+    }));
+  };
+
+  const handleAddArea = () => {
+    if (!areaDraft.description.trim() && areaDraft.photos.length === 0) {
+      setError("Bitte beschreibe den Bereich oder füge zumindest ein Foto hinzu.");
+      return;
+    }
+    const newArea = {
+      id: Date.now(),
+      type: areaDraft.type,
+      description: areaDraft.description.trim(),
+      photos: areaDraft.photos,
+    };
+    setAreas((prev) => [...prev, newArea]);
+    setAreaDraft({ type: "kitchen", description: "", photos: [] });
+    setError("");
+  };
+
+  const handleRemoveArea = (id) => {
+    setAreas((prev) => prev.filter((area) => area.id !== id));
+  };
+
+  const handleEstimate = () => {
+    if (areas.length === 0) {
+      setError("Füge mindestens einen Bereich mit Fotos hinzu.");
+      return;
+    }
+    const result = estimateRenovationFromAreas(meta, areas);
+    if (!result) {
+      setError("Berechnung fehlgeschlagen. Bitte überprüfe deine Eingaben.");
+      return;
+    }
+    setError("");
+    setEstimation(result);
+    setHistory((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        meta,
+        areas,
+        result,
+      },
+    ]);
+  };
+
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <h2 style={sectionTitleStyle}>Renovierungsanalyse</h2>
+      <p style={{ color: "rgba(226, 232, 240, 0.85)", maxWidth: "780px" }}>
+        Dokumentiere Räume mit Fotos und Notizen. Wir schätzen daraus ein realistisches Budget pro Bereich
+        sowie Gesamtkosten. Die Daten bleiben lokal gespeichert, bis du sie exportierst.
+      </p>
+
+      <div style={analysisCoachGridStyle}>
+        <div style={analysisCoachCardStyle}>
+          <h3 style={sectionSubtitleStyle}>Objektdetails</h3>
+          <div className="input-stack">
+            <label style={labelStyle}>Name / Referenz</label>
+            <input
+              type="text"
+              value={meta.objectName}
+              onChange={(e) => handleMetaChange("objectName", e.target.value)}
+              placeholder="z.B. Projekt Ottakring"
+              style={inputStyle}
+            />
+          </div>
+          <div style={analysisFormGridStyle}>
+            <div className="input-stack">
+              <label style={labelStyle}>Wohnfläche (m²)</label>
+              <input
+                type="number"
+                value={meta.totalArea}
+                onChange={(e) => handleMetaChange("totalArea", e.target.value)}
+                placeholder="z.B. 82"
+                style={inputStyle}
+                min="0"
+              />
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Bundesland</label>
+              <select
+                value={meta.state}
+                onChange={(e) => handleMetaChange("state", e.target.value)}
+                style={selectStyle}
+              >
+                {Object.entries(REGION_DATA).map(([value, info]) => (
+                  <option key={value} value={value}>
+                    {info.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Bezirk</label>
+              <select
+                value={meta.district}
+                onChange={(e) => handleMetaChange("district", e.target.value)}
+                style={selectStyle}
+              >
+                {districtOptions.map((district) => (
+                  <option key={district.value} value={district.value}>
+                    {district.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle}>Notizen (optional)</label>
+            <textarea
+              value={meta.notes}
+              onChange={(e) => handleMetaChange("notes", e.target.value)}
+              placeholder="z.B. Feuchte Kellerwand, Budgetgrenze 30k"
+              style={{ ...inputStyle, minHeight: "70px", resize: "vertical" }}
+            />
+          </div>
+
+          <div style={areaDraftCardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h4 style={areaDraftTitleStyle}>Bereich erfassen</h4>
+              <span style={areaDraftHintStyle}>Füge jeden Raum mit Fotos hinzu.</span>
+            </div>
+            <div style={analysisFormGridStyle}>
+              <div className="input-stack">
+                <label style={labelStyle}>Bereich</label>
+                <select
+                  value={areaDraft.type}
+                  onChange={(e) => handleDraftChange("type", e.target.value)}
+                  style={selectStyle}
+                >
+                  {RENOVATION_AREA_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="input-stack">
+                <label style={labelStyle}>Beschreibung</label>
+                <textarea
+                  value={areaDraft.description}
+                  onChange={(e) => handleDraftChange("description", e.target.value)}
+                  placeholder="z.B. alte Fliesen, neue Geräte geplant"
+                  style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
+                />
+              </div>
+            </div>
+              <div>
+                <label style={uploadButtonStyle}>
+                  Fotos hochladen
+                  <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleDraftPhotos} />
+                </label>
+                <div style={areaPhotoPreviewStyle}>
+                  {areaDraft.photos.length === 0 ? (
+                    <div style={areaPhotoEmptyStyle}>
+                      <span style={{ fontSize: "1.1rem" }}>📷</span>
+                      <span>Keine Fotos – füge Bilder hinzu.</span>
+                    </div>
+                  ) : (
+                    areaDraft.photos.map((photo) => (
+                      <div key={photo.id} style={renovationPhotoThumbStyle}>
+                        <img src={photo.src} alt={photo.name} style={renovationPhotoImgStyle} />
+                        <button
+                          type="button"
+                          style={photoRemoveButtonStyle}
+                          onClick={() => handleRemoveDraftPhoto(photo.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            <button type="button" style={{ ...primaryButtonStyle, width: "100%" }} onClick={handleAddArea}>
+              Bereich speichern
+            </button>
+          </div>
+
+          <div>
+            <h4 style={areaDraftTitleStyle}>Dokumentierte Bereiche</h4>
+            {areas.length === 0 ? (
+              <p style={{ color: "rgba(226, 232, 240, 0.7)", fontSize: "0.85rem" }}>
+                Noch keine Bereiche hinzugefügt. Speichere jeden Raum mit Beschreibung und Fotos.
+              </p>
+            ) : (
+              <div style={renovationAreaListStyle}>
+                {areas.map((area) => {
+                  const preset = RENOVATION_AREA_PRESETS[area.type] || RENOVATION_AREA_PRESETS.other;
+                  return (
+                    <div key={area.id} style={renovationAreaCardStyle}>
+                      <div style={renovationAreaHeaderStyle}>
+                        <div>
+                          <strong>{preset.label}</strong>
+                          <div style={smallLabelStyle}>
+                            {area.photos.length} Foto{area.photos.length === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <button style={areaRemoveButtonStyle} onClick={() => handleRemoveArea(area.id)}>
+                          Entfernen
+                        </button>
+                      </div>
+                      <p style={{ color: "rgba(226,232,240,0.85)", fontSize: "0.85rem", marginTop: "0.2rem" }}>
+                        {area.description || "Keine Beschreibung"}
+                      </p>
+                      {area.photos.length > 0 && (
+                        <div style={renovationPhotoGridStyle}>
+                          {area.photos.map((photo) => (
+                            <div key={photo.id} style={renovationPhotoThumbStyle}>
+                              <img src={photo.src} alt={photo.name || preset.label} style={renovationPhotoImgStyle} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={analysisResultCardStyle}>
+          <div style={analysisResultHeaderStyle}>
+            <div>
+              <span style={analysisResultLabelStyle}>Gesamtschätzung</span>
+              <div style={analysisResultValueStyle}>
+                {estimation ? `${formatEuro(estimation.totalMin)} – ${formatEuro(estimation.totalMax)}` : "—"}
+              </div>
+              {estimation && (
+                <div style={analysisResultHintStyle}>
+                  {estimation.stateLabel}
+                  {estimation.districtLabel ? ` · ${estimation.districtLabel}` : ""}
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <span style={analysisResultLabelStyle}>Bereiche</span>
+              <div style={analysisResultValueStyle}>{areas.length}</div>
+            </div>
+          </div>
+
+          {estimation ? (
+            <div style={renovationBreakdownStyle}>
+              {estimation.breakdown.map((item) => (
+                <div key={item.id} style={renovationBreakdownRowStyle}>
+                  <div>
+                    <div style={{ fontSize: "0.9rem", color: "#f8fafc" }}>{item.label}</div>
+                    <div style={{ fontSize: "0.78rem", color: "rgba(226,232,240,0.7)" }}>
+                      {item.description || "Keine Beschreibung"}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {formatEuro(item.min)} – {formatEuro(item.max)}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.6)" }}>
+                      {item.photoCount} Foto{item.photoCount === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={renovationEmptyStateStyle}>
+              <span style={renovationEmptyIconStyle}>🧰</span>
+              <strong>Keine Analyse berechnet</strong>
+              <span>
+                Füge links mindestens einen Bereich mit Fotos hinzu und klicke dann auf
+                „Renovierungskosten schätzen“.
+              </span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            style={{
+              ...primaryButtonStyle,
+              alignSelf: "flex-start",
+              padding: "0.4rem 1.2rem",
+              flex: "0 0 auto",
+            }}
+            onClick={handleEstimate}
+          >
+            Renovierungskosten schätzen
+          </button>
+          {error && <div style={errorTextStyle}>{error}</div>}
+
+          {history.length > 0 && (
+            <div style={historyCardStyle}>
+              <div style={{ fontSize: "0.85rem", color: "rgba(226,232,240,0.8)", marginBottom: "0.4rem" }}>
+                Gespeicherte Analysen
+              </div>
+              <div style={historyListStyle}>
+                {history.slice(-4).map((entry) => (
+                  <div key={entry.id} style={historyItemStyle}>
+                    <div>
+                      <strong>{entry.result.objectName || "Unbenanntes Objekt"}</strong>
+                      <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.65)" }}>
+                        {new Date(entry.timestamp).toLocaleString("de-AT", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {formatEuro(entry.result.totalMin)} – {formatEuro(entry.result.totalMax)}
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.7)" }}>
+                        {entry.areas.length} Bereiche
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ marginTop: "0.5rem" }}>
+        <h3 style={{ ...sectionTitleStyle, fontSize: "1rem" }}>Foto-Galerie aus deinen Deals</h3>
+        {!hasPhotos ? (
+          <div style={summaryCardStyle}>
+            <span style={summaryLabelStyle}>Noch keine Fotos</span>
+            <span style={summaryValueStyle}>
+              Füge Bilder in der Immobilien-Erfassung hinzu, um hier eine Galerie zu sehen.
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+            {properties.map((prop) =>
+              !prop.photos || prop.photos.length === 0 ? null : (
+                <div key={prop.id} style={typeSplitCardStyle}>
+                  <strong style={{ color: "#f8fafc" }}>{prop.title}</strong>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: "0.35rem" }}>
+                    {prop.photos.map((photo, idx) => {
+                      const metaPhoto = toPhotoObject(photo);
+                      if (!metaPhoto.src) return null;
+                      return (
+                        <div key={`${prop.id}-gallery-${idx}`} style={detailImageWrapperStyle}>
+                          <img src={metaPhoto.src} alt={`${prop.title} Foto ${idx + 1}`} style={detailImageStyle} />
+                          {(metaPhoto.category || metaPhoto.note) && (
+                            <div style={photoTagStyle}>
+                              <strong>{metaPhoto.category || "Foto"}</strong>
+                              {metaPhoto.note && <span style={{ display: "block", fontWeight: 400 }}>{metaPhoto.note}</span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ValuationCharts({ properties }) {
+  if (!properties || properties.length === 0) {
+    return null;
+  }
+
+  const totalPositive = properties
+    .filter((p) => p.monthlyCashflow >= 0)
+    .reduce((sum, p) => sum + p.monthlyCashflow, 0);
+  const totalNegative = Math.abs(
+    properties
+      .filter((p) => p.monthlyCashflow < 0)
+      .reduce((sum, p) => sum + p.monthlyCashflow, 0)
+  );
+  const totalAbs = totalPositive + totalNegative || 1;
+  const condensed = properties
+    .map((p) => ({
+      title: p.title,
+      value: Math.abs(p.monthlyCashflow),
+      positive: p.monthlyCashflow >= 0,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+
+  return (
+    <div style={valuationChartsWrapperStyle}>
+      <div style={donutCardStyle}>
+        <h3 style={donutTitleStyle}>Cashflow-Verteilung</h3>
+        <div style={{ width: "160px", height: "160px", position: "relative" }}>
+          <svg viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
+            <circle
+              cx="18"
+              cy="18"
+              r="16"
+              stroke="#22c55e"
+              strokeWidth="4"
+              fill="none"
+              strokeDasharray={`${(totalPositive / totalAbs) * 100} ${
+                100 - (totalPositive / totalAbs) * 100
+              }`}
+              strokeDashoffset="0"
+            />
+            <circle
+              cx="18"
+              cy="18"
+              r="16"
+              stroke="#f97373"
+              strokeWidth="4"
+              fill="none"
+              strokeDasharray={`${(totalNegative / totalAbs) * 100} ${
+                100 - (totalNegative / totalAbs) * 100
+              }`}
+              strokeDashoffset={`${(totalPositive / totalAbs) * 100}`}
+            />
+          </svg>
+          <div style={donutCenterStyle}>
+            <span
+              style={{
+                color: totalPositive >= totalNegative ? "#22c55e" : "#f97373",
+                fontSize: "1.2rem",
+                fontWeight: 700,
+              }}
+            >
+              {totalPositive >= totalNegative
+                ? `+${totalPositive.toFixed(0)} €`
+                : `-${totalNegative.toFixed(0)} €`}
+            </span>
+          </div>
+        </div>
+        <div style={donutLegendStyle}>
+          <span style={{ color: "#22c55e" }}>Positiver Cashflow</span>
+          <span style={{ color: "#f97373" }}>Negativer Cashflow</span>
+        </div>
+      </div>
+      <div style={barCardStyle}>
+        <h3 style={donutTitleStyle}>Top Cashflow</h3>
+        {condensed.map((entry) => (
+          <div key={entry.title} style={barRowStyle}>
+            <span style={{ flex: "0 0 130px", color: "#f8fafc", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {entry.title}
+            </span>
+            <div style={barTrackStyle}>
+              <div
+                style={{
+                  ...barFillStyle,
+                  width: `${(entry.value / (condensed[0]?.value || 1)) * 100}%`,
+                  background: entry.positive
+                    ? "linear-gradient(90deg,#22c55e,#16a34a)"
+                    : "linear-gradient(90deg,#f97373,#b91c1c)",
+                }}
+              />
+            </div>
+            <span
+              style={{
+                width: "110px",
+                textAlign: "right",
+                color: entry.positive ? "#22c55e" : "#f97373",
+              }}
+            >
+              {(entry.positive ? entry.value : -entry.value).toFixed(2)} €
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RegistrationScreen({ onRegister }) {
+  const [form, setForm] = useState({
+    name: "",
+    company: "",
+    email: "",
+    password: "",
+    consent: false,
+  });
+  const [error, setError] = useState("");
+
+  const handleChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!form.email.trim() || !form.password.trim()) {
+      setError("Bitte gib mindestens E-Mail und Passwort ein.");
+      return;
+    }
+    if (form.password.length < 6) {
+      setError("Passwort muss mindestens 6 Zeichen lang sein.");
+      return;
+    }
+    if (!form.consent) {
+      setError("Bitte bestätige die Nutzungsbedingungen und Datenschutz.");
+      return;
+    }
+    setError("");
+    onRegister({
+      name: form.name.trim(),
+      company: form.company.trim(),
+      email: form.email.trim(),
+      createdAt: new Date().toISOString(),
+    });
+  };
+
+  return (
+    <div style={pageStyle} className="app-page">
+      <div style={registerCardStyle}>
+        <div>
+          <h1 style={{ ...titleStyle, fontSize: "2rem" }}>AIM RealEstate Analytics</h1>
+          <p style={{ color: "rgba(226,232,240,0.8)", marginBottom: "1.5rem" }}>
+            Registriere dich, um deine Immobilienanalysen zu speichern und personalisierte Auswertungen zu
+            erhalten.
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} style={registerFormStyle}>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="reg-name">
+              Name (optional)
+            </label>
+            <input
+              id="reg-name"
+              className="aim-input"
+              type="text"
+              value={form.name}
+              onChange={(e) => handleChange("name", e.target.value)}
+              placeholder="z.B. Anna Mustermann"
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="reg-company">
+              Unternehmen (optional)
+            </label>
+            <input
+              id="reg-company"
+              className="aim-input"
+              type="text"
+              value={form.company}
+              onChange={(e) => handleChange("company", e.target.value)}
+              placeholder="z.B. AM Investment GmbH"
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="reg-email">
+              E-Mail-Adresse
+            </label>
+            <input
+              id="reg-email"
+              className="aim-input"
+              type="email"
+              value={form.email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              placeholder="du@example.com"
+              required
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="reg-password">
+              Passwort
+            </label>
+            <input
+              id="reg-password"
+              className="aim-input"
+              type="password"
+              value={form.password}
+              onChange={(e) => handleChange("password", e.target.value)}
+              placeholder="mind. 6 Zeichen"
+              required
+            />
+          </div>
+          <label style={consentLabelStyle}>
+            <input
+              type="checkbox"
+              checked={form.consent}
+              onChange={(e) => handleChange("consent", e.target.checked)}
+            />{" "}
+            Ich stimme den Nutzungsbedingungen und der Datenschutzerklärung zu.
+          </label>
+          {error && <div style={errorBadgeStyle}>{error}</div>}
+          <button type="submit" style={primaryButtonStyle}>
+            Registrieren und loslegen
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function VerificationScreen({ draft, code, onVerify, onResend, onCancel }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!input.trim()) {
+      setError("Bitte gib den Bestätigungscode ein.");
+      return;
+    }
+    const ok = onVerify(input.trim());
+    if (!ok) {
+      setError("Code ist nicht korrekt.");
+      return;
+    }
+    setError("");
+  };
+
+  return (
+    <div style={pageStyle} className="app-page">
+      <div style={registerCardStyle}>
+        <div>
+          <h1 style={{ ...titleStyle, fontSize: "2rem" }}>E-Mail bestätigen</h1>
+          <p style={{ color: "rgba(226,232,240,0.8)", marginBottom: "1.2rem" }}>
+            Wir haben einen Bestätigungscode an <strong>{draft.email}</strong> gesendet. (Demo:
+            unten siehst du den simulierten Code.)
+          </p>
+          <div style={mockMailStyle}>
+            <div style={{ fontWeight: 600, marginBottom: "0.35rem" }}>Simulierte E-Mail</div>
+            <div style={{ fontSize: "0.9rem" }}>Hallo {draft.name || "AIM Nutzer"},</div>
+            <div style={{ fontSize: "0.9rem" }}>
+              dein Verifizierungscode lautet <strong>{code}</strong>.
+            </div>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} style={registerFormStyle}>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="verification-code">
+              Bestätigungscode
+            </label>
+            <input
+              id="verification-code"
+              className="aim-input"
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Code eingeben"
+            />
+          </div>
+          {error && <div style={errorBadgeStyle}>{error}</div>}
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+            <button type="submit" style={primaryButtonStyle}>
+              Verifizieren
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() => {
+                setInput("");
+                setError("");
+                onResend();
+              }}
+            >
+              Code erneut senden
+            </button>
+            <button type="button" style={ghostButtonStyle} onClick={onCancel}>
+              Zur Registrierung
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function InfoTab({ onStart, userName }) {
+  const greetingName =
+    typeof userName === "string" && userName.trim().length > 0 ? userName.trim() : null;
+  const heroTitle = greetingName
+    ? `Willkommen, ${greetingName}`
+    : "Willkommen bei AIM RealEstate Analytics";
+
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={infoHeroStyle}>
+        <div>
+      <h2 style={{ ...sectionTitleStyle, fontSize: "1.3rem" }}>{heroTitle}</h2>
+          <p style={infoHeroTextStyle}>
+            AIM RealEstate Analytics ist dein persönlicher Deal-Copilot. Erfasse Wohnungen, Häuser oder
+            Garagen, optimiere Cashflow und Rendite und exportiere Portfolios als JSON.
+          </p>
+        </div>
+        <div style={infoHeroBadgeStyle}>Beta · v0.5</div>
+      </div>
+
+      <div style={infoGridStyle}>
+        <InfoCard
+          title="1 · Deal anlegen"
+          body="Trage Eckdaten wie Kaufpreis, Eigenkapital oder Miete ein. Optional kannst du mehrere Fotos hinzufügen, um dein Objekt visuell festzuhalten."
+        />
+        <InfoCard
+          title="2 · Kennzahlen prüfen"
+          body="Mit einem Klick auf „Berechnen“ erhältst du Cashflow, Renditen und Nebenkosten. Die neue Bewertungsansicht zeigt Szenarien (Worst/Real/Best)."
+        />
+        <InfoCard
+          title="3 · Analysieren & Exportieren"
+          body="Vergleiche dein Portfolio im Dashboard, nutze den Analyse-Tab für Fotos und exportiere alles als JSON-Datei."
+        />
+      </div>
+
+      <div style={infoChecklistStyle}>
+        <h3 style={{ margin: 0, fontSize: "1rem", color: "#f8fafc" }}>Was du wissen solltest</h3>
+        <ul style={infoChecklistListStyle}>
+          <li>🧮 Renditen basieren auf deinen Annahmen. Passe sie jederzeit an.</li>
+          <li>📤 Exportfunktion findest du im Tab „Export“.</li>
+          <li>🔐 Deine Daten verlassen den Browser nur, wenn du sie exportierst.</li>
+        </ul>
+        <button
+          type="button"
+          style={primaryButtonStyle}
+          onClick={() => {
+            if (typeof onStart === "function") {
+              onStart();
+            }
+            setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
+          }}
+        >
+          Lege deine erste Immobilie an
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function InfoCard({ title, body }) {
+  return (
+    <div style={infoCardStyle}>
+      <h4 style={infoCardTitleStyle}>{title}</h4>
+      <p style={infoCardTextStyle}>{body}</p>
+    </div>
+  );
+}
+
+const photoCategories = [
+  "Wohnzimmer",
+  "Schlafzimmer",
+  "Küche",
+  "Bad",
+  "Balkon / Terrasse",
+  "Außenbereich",
+  "Garage",
+  "Technik",
+  "Sonstiges",
+];
+
+const euroFormatter = new Intl.NumberFormat("de-AT", {
+  style: "currency",
+  currency: "EUR",
+  maximumFractionDigits: 0,
+});
+
+const numberFormatter = new Intl.NumberFormat("de-AT", {
+  maximumFractionDigits: 1,
+});
+
+const formatEuro = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return euroFormatter.format(num);
+};
+
+const formatPercent = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return `${num.toFixed(1)} %`;
+};
+
+const getYearFactor = (yearInput) => {
+  const year = Number(yearInput);
+  if (!Number.isFinite(year) || year <= 0) {
+    return 1;
+  }
+  const rule = YEAR_FACTOR_RULES.find((entry) => year <= entry.maxYear);
+  return rule ? rule.factor : 1;
+};
+
+const getVerdictFromDiff = (diffPct) => {
+  if (diffPct === null || !Number.isFinite(diffPct)) {
+    return { label: "Marktpreis laut Analyse", color: "#38bdf8" };
+  }
+  if (diffPct <= -5) {
+    return { label: "Guter Deal", color: "#22c55e" };
+  }
+  if (Math.abs(diffPct) <= 5) {
+    return { label: "Marktpreis", color: "#facc15" };
+  }
+  return { label: "Überteuert", color: "#f87171" };
+};
+
+const runMarketAnalysis = (inputs = {}) => {
+  const state = REGION_DATA[inputs.state];
+  if (!state) {
+    return { ok: false, error: "Bitte ein Bundesland auswählen." };
+  }
+  const livingArea = Number(inputs.livingArea);
+  if (!Number.isFinite(livingArea) || livingArea <= 0) {
+    return { ok: false, error: "Bitte eine Wohnfläche in m² angeben." };
+  }
+  const district =
+    state.districts.find((d) => d.value === inputs.district) || null;
+  const basePerSqm = district?.price || state.averagePrice;
+  const conditionFactor = CONDITION_FACTORS[inputs.condition] || 1;
+  const yearFactor = getYearFactor(inputs.yearBuilt);
+  const typeFactor = PROPERTY_TYPE_FACTORS[inputs.propertyType] || 1;
+  const recommendedPrice =
+    basePerSqm * livingArea * conditionFactor * yearFactor * typeFactor;
+  const recommendedPerSqm = recommendedPrice / livingArea;
+  const userPriceInput = Number(inputs.targetPrice);
+  const userPrice = Number.isFinite(userPriceInput) && userPriceInput > 0 ? userPriceInput : null;
+  const differenceAbs =
+    userPrice !== null ? userPrice - recommendedPrice : null;
+  const differencePct =
+    differenceAbs !== null ? (differenceAbs / recommendedPrice) * 100 : null;
+  const verdict = getVerdictFromDiff(differencePct);
+
+  return {
+    ok: true,
+    data: {
+      stateLabel: state.label,
+      districtLabel: district ? district.label : "—",
+      basePerSqm,
+      livingArea,
+      recommendedPerSqm,
+      recommendedPrice,
+      conditionFactor,
+      yearFactor,
+      typeFactor,
+      userPrice,
+      differenceAbs,
+      differencePct,
+      verdict,
+      minPrice: state.minPrice || null,
+      maxPrice: state.maxPrice || null,
+    },
+  };
+};
+
+const estimateRenovationFromAreas = (meta, areas) => {
+  if (!areas || areas.length === 0) return null;
+
+  const stateData = REGION_DATA[meta.state] || REGION_DATA.wien;
+  const district = stateData.districts.find((d) => d.value === meta.district) || null;
+  const referenceAvg = REGION_DATA.wien.averagePrice || 5200;
+  const regionFactor =
+    stateData && stateData.averagePrice ? stateData.averagePrice / referenceAvg : 1;
+  const totalArea = Number(meta.totalArea);
+  const areaFactor =
+    Number.isFinite(totalArea) && totalArea > 0
+      ? Math.min(1.5, Math.max(0.7, totalArea / 75))
+      : 1;
+
+  let totalMin = 0;
+  let totalMax = 0;
+  const breakdown = areas.map((area) => {
+    const preset = RENOVATION_AREA_PRESETS[area.type] || RENOVATION_AREA_PRESETS.other;
+    const photoFactor = 1 + Math.min(area.photos.length, 3) * 0.05;
+    const min = preset.min * areaFactor * regionFactor * photoFactor;
+    const max = preset.max * areaFactor * regionFactor * photoFactor;
+    totalMin += min;
+    totalMax += max;
+    return {
+      id: area.id,
+      label: preset.label,
+      description: area.description || "",
+      min,
+      max,
+      photoCount: area.photos.length,
+    };
+  });
+
+  return {
+    totalMin,
+    totalMax,
+    breakdown,
+    objectName: meta.objectName || "",
+    stateLabel: stateData.label,
+    districtLabel: district ? district.label : "",
+    note: meta.notes?.trim() || "",
+  };
+};
+
+function MarketAnalysisTab() {
+  const [form, setForm] = useState({
+    state: "wien",
+    district: REGION_DATA.wien.districts[0].value,
+    address: "",
+    propertyType: "wohnung",
+    livingArea: "",
+    rooms: "3",
+    yearBuilt: "",
+    condition: "sehr_gut",
+    targetPrice: "",
+  });
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [error, setError] = useState("");
+
+  const selectedState = REGION_DATA[form.state];
+  const districtOptions = selectedState ? selectedState.districts : [];
+  const maxConditionFactor = Math.max(...Object.values(CONDITION_FACTORS));
+
+  const handleChange = (field, value) => {
+    setForm((prev) => {
+      if (field === "state") {
+        const fallbackDistrict =
+          REGION_DATA[value]?.districts?.[0]?.value || "";
+        return { ...prev, state: value, district: fallbackDistrict };
+      }
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleSubmit = () => {
+    const outcome = runMarketAnalysis(form);
+    if (!outcome.ok) {
+      setError(outcome.error || "Analyse fehlgeschlagen.");
+      setAnalysisResult(null);
+      return;
+    }
+    setError("");
+    setAnalysisResult(outcome.data);
+  };
+
+  const sqmReference = analysisResult
+    ? Math.max(
+        analysisResult.basePerSqm,
+        analysisResult.recommendedPerSqm,
+        selectedState?.maxPrice || analysisResult.recommendedPerSqm
+      )
+    : selectedState?.maxPrice || 1;
+
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <h2 style={sectionTitleStyle}>Marktanalyse</h2>
+      <p style={{ color: "rgba(226, 232, 240, 0.85)", maxWidth: "820px" }}>
+        Gib Lage und Eckdaten erneut ein, um einen empfohlenen Kaufpreis zu erhalten. So erkennst du,
+        ob dein Angebot ein guter Deal oder überteuert ist.
+      </p>
+
+      <div style={marketAnalysisGridStyle}>
+        <div style={marketFormCardStyle}>
+          <div className="input-stack">
+            <label style={labelStyle}>Bundesland</label>
+            <select
+              value={form.state}
+              onChange={(e) => handleChange("state", e.target.value)}
+              style={selectStyle}
+            >
+              {Object.entries(REGION_DATA).map(([key, meta]) => (
+                <option key={key} value={key}>
+                  {meta.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle}>Bezirk</label>
+            <select
+              value={form.district}
+              onChange={(e) => handleChange("district", e.target.value)}
+              style={selectStyle}
+            >
+              {districtOptions.length === 0 && (
+                <option value="">Bitte Bundesland wählen</option>
+              )}
+              {districtOptions.map((district) => (
+                <option key={district.value} value={district.value}>
+                  {district.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle}>Adresse (optional)</label>
+            <input
+              type="text"
+              value={form.address}
+              onChange={(e) => handleChange("address", e.target.value)}
+              placeholder="z.B. Musterstraße 10"
+              style={inputStyle}
+            />
+          </div>
+
+          <div style={analysisFormGridStyle}>
+            <div className="input-stack">
+              <label style={labelStyle}>Objektart</label>
+              <select
+                value={form.propertyType}
+                onChange={(e) => handleChange("propertyType", e.target.value)}
+                style={selectStyle}
+              >
+                <option value="wohnung">Wohnung</option>
+                <option value="haus">Haus</option>
+                <option value="sonstiges">Sonstiges</option>
+              </select>
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Wohnfläche (m²)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={form.livingArea}
+                onChange={(e) => handleChange("livingArea", e.target.value)}
+                placeholder="z.B. 85"
+                style={inputStyle}
+                min="1"
+              />
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Zimmer</label>
+              <input
+                type="number"
+                value={form.rooms}
+                onChange={(e) => handleChange("rooms", e.target.value)}
+                placeholder="3"
+                style={inputStyle}
+                min="1"
+              />
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Baujahr</label>
+              <input
+                type="number"
+                value={form.yearBuilt}
+                onChange={(e) => handleChange("yearBuilt", e.target.value)}
+                placeholder="z.B. 1998"
+                style={inputStyle}
+                min="1900"
+              />
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Zustand</label>
+              <select
+                value={form.condition}
+                onChange={(e) => handleChange("condition", e.target.value)}
+                style={selectStyle}
+              >
+                <option value="neubau">Neubau</option>
+                <option value="sehr_gut">Sehr gut</option>
+                <option value="gut">Gut</option>
+                <option value="sanierungsbeduerftig">Sanierungsbedürftig</option>
+                <option value="kernsanierung">Kernsanierungsbedürftig</option>
+              </select>
+            </div>
+            <div className="input-stack">
+              <label style={labelStyle}>Dein Kaufpreis (optional)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={form.targetPrice}
+                onChange={(e) => handleChange("targetPrice", e.target.value)}
+                placeholder="z.B. 420000"
+                style={inputStyle}
+                min="0"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div style={{ color: "#f87171", fontSize: "0.85rem", marginTop: "0.35rem" }}>{error}</div>
+          )}
+
+          <button
+            type="button"
+            style={{ ...primaryButtonStyle, width: "100%", marginTop: "0.75rem" }}
+            onClick={handleSubmit}
+          >
+            Marktwert berechnen
+          </button>
+        </div>
+
+        <div style={marketResultCardStyle}>
+          {analysisResult ? (
+            <>
+              <div style={analysisResultHeaderStyle}>
+                <div>
+                  <span style={analysisResultLabelStyle}>Perfekter Kaufpreis</span>
+                  <div style={analysisResultValueStyle}>{formatEuro(analysisResult.recommendedPrice)}</div>
+                  <div style={analysisResultHintStyle}>
+                    {analysisResult.stateLabel} · {analysisResult.districtLabel}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <span style={analysisResultLabelStyle}>Bewertung</span>
+                  <div style={{ ...analysisVerdictStyle, color: analysisResult.verdict.color }}>
+                    {analysisResult.verdict.label}
+                  </div>
+                </div>
+              </div>
+
+              <div style={marketResultGridStyle}>
+                <div>
+                  <div style={summaryLabelStyle}>m²-Preis (Basis)</div>
+                  <div style={summaryValueStyle}>{formatEuro(analysisResult.basePerSqm)}</div>
+                  <div style={{ ...progressTrackStyle, marginTop: "0.35rem" }}>
+                    <div
+                      style={{
+                        ...progressBarStyle,
+                        width: `${Math.min(100, (analysisResult.basePerSqm / sqmReference) * 100)}%`,
+                        background: "linear-gradient(90deg,#94a3b8,#cbd5f5)",
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div style={summaryLabelStyle}>m²-Preis (angepasst)</div>
+                  <div style={summaryValueStyle}>{formatEuro(analysisResult.recommendedPerSqm)}</div>
+                  <div style={{ ...progressTrackStyle, marginTop: "0.35rem" }}>
+                    <div
+                      style={{
+                        ...progressBarStyle,
+                        width: `${Math.min(100, (analysisResult.recommendedPerSqm / sqmReference) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={marketResultGridStyle}>
+                <div>
+                  <div style={summaryLabelStyle}>Zustandsfaktor</div>
+                  <div style={summaryValueStyle}>
+                    {numberFormatter.format(analysisResult.conditionFactor)}×
+                  </div>
+                  <div style={{ ...progressTrackStyle, marginTop: "0.35rem" }}>
+                    <div
+                      style={{
+                        ...progressBarStyle,
+                        width: `${Math.min(100, (analysisResult.conditionFactor / maxConditionFactor) * 100)}%`,
+                        background: "linear-gradient(90deg,#34d399,#059669)",
+                      }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div style={summaryLabelStyle}>Baujahr-Faktor</div>
+                  <div style={summaryValueStyle}>
+                    {numberFormatter.format(analysisResult.yearFactor)}×
+                  </div>
+                  <div style={{ ...progressTrackStyle, marginTop: "0.35rem" }}>
+                    <div
+                      style={{
+                        ...progressBarStyle,
+                        width: `${Math.min(100, (analysisResult.yearFactor / 1.1) * 100)}%`,
+                        background: "linear-gradient(90deg,#60a5fa,#2563eb)",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {analysisResult.userPrice ? (
+                <div style={analysisComparisonCardStyle}>
+                  <div>
+                    <div style={summaryLabelStyle}>Dein Kaufpreis</div>
+                    <div style={{ ...summaryValueStyle, fontSize: "1.1rem" }}>
+                      {formatEuro(analysisResult.userPrice)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={summaryLabelStyle}>Differenz</div>
+                    <div
+                      style={{
+                        ...summaryValueStyle,
+                        fontSize: "1.1rem",
+                        color: analysisResult.differenceAbs <= 0 ? "#22c55e" : "#f87171",
+                      }}
+                    >
+                      {formatEuro(analysisResult.differenceAbs)}
+                    </div>
+                    <div style={{ color: "rgba(226,232,240,0.75)", fontSize: "0.8rem" }}>
+                      {formatPercent(analysisResult.differencePct)}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ color: "rgba(226, 232, 240, 0.7)", fontSize: "0.85rem" }}>
+                  Trage deinen Angebotspreis ein, um die Differenz zum Analysepreis zu sehen.
+                </div>
+              )}
+
+              {selectedState?.minPrice && selectedState?.maxPrice && (
+                <div style={{ marginTop: "0.75rem", fontSize: "0.78rem", color: "rgba(226,232,240,0.7)" }}>
+                  Preisspanne im Bundesland: {formatEuro(selectedState.minPrice)} –{" "}
+                  {formatEuro(selectedState.maxPrice)} pro m²
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ color: "rgba(226, 232, 240, 0.7)", fontSize: "0.9rem" }}>
+              Wähle Bundesland, Bezirk und gib die Eckdaten deiner Immobilie ein. Du erhältst den idealen
+              Kaufpreis plus Bewertung.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PhotoField({ value, onChange, entries = [], onEntriesChange }) {
+  const photoItems = Array.isArray(entries) ? entries : [];
   const urls = value
     .split(/[\n,]/)
     .map((u) => u.trim())
     .filter(Boolean);
+
+  const updateEntry = (id, field, newValue) => {
+    if (!onEntriesChange) return;
+    onEntriesChange(
+      photoItems.map((entry) => (entry.id === id ? { ...entry, [field]: newValue } : entry))
+    );
+  };
+
+  const removeEntry = (id) => {
+    if (!onEntriesChange) return;
+    onEntriesChange(photoItems.filter((entry) => entry.id !== id));
+  };
+
+  const handleFiles = (event) => {
+    if (!onEntriesChange) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    const nextEntries = [...photoItems];
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const src = loadEvent.target?.result?.toString();
+        if (!src) return;
+        nextEntries.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          src,
+          category: "Sonstiges",
+          note: file.name,
+        });
+        onEntriesChange([...nextEntries]);
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = "";
+  };
+
   return (
     <div style={photoFieldContainerStyle}>
-      <h3 style={photoFieldTitleStyle}>📸 Immobilie visuell festhalten</h3>
+      <h3 style={photoFieldTitleStyle}>📸 Fotos zur Wiedererkennung</h3>
       <p style={helperTextStyle}>
-        Füge Links zu Fotos deiner Immobilie hinzu (je Zeile oder durch Komma getrennt) – du findest
-        kostenlose Bilder z.&nbsp;B.
-        bei{" "}
-        <a
-          href="https://unsplash.com/s/photos/real-estate"
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: "#60a5fa" }}
-        >
-          Unsplash
-        </a>
-        .
+        Diese Fotos erscheinen in deiner Immobilienliste, damit du sofort weißt, um welches Objekt es
+        sich handelt. Ergänze optional Kategorie und Notiz.
       </p>
+
+      <div style={photoUploadRowStyle}>
+        <label style={uploadButtonStyle}>
+          Foto hochladen
+          <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleFiles} />
+        </label>
+        <span style={{ fontSize: "0.75rem", color: "rgba(226, 232, 240, 0.7)" }}>
+          Unterstützt PNG, JPG, HEIC (wird lokal gespeichert).
+        </span>
+      </div>
+
+      {photoItems.length > 0 && (
+        <div style={photoEntryListStyle}>
+          {photoItems.map((entry) => (
+            <div key={entry.id} style={photoEntryItemStyle}>
+              <div style={photoEntryPreviewStyle}>
+                <img
+                  src={entry.src}
+                  alt={entry.note || entry.category}
+                  style={photoPreviewImageStyle}
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              </div>
+              <div style={photoEntryControlsStyle}>
+                <label style={smallLabelStyle}>Kategorie</label>
+                <select
+                  value={entry.category || "Sonstiges"}
+                  onChange={(e) => updateEntry(entry.id, "category", e.target.value)}
+                  style={selectStyle}
+                >
+                  {photoCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+                <label style={{ ...smallLabelStyle, marginTop: "0.35rem" }}>Beschreibung</label>
+                <textarea
+                  style={photoEntryNoteStyle}
+                  value={entry.note || ""}
+                  onChange={(e) => updateEntry(entry.id, "note", e.target.value)}
+                  placeholder="z.B. Bad – Fliesen Zustand dokumentiert"
+                />
+              </div>
+              <button type="button" style={photoEntryRemoveStyle} onClick={() => removeEntry(entry.id)}>
+                Entfernen
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <label style={labelStyle} htmlFor="photoUrls">
-        Bild-URLs (optional)
+        Zusätzliche Bild-Links (optional)
       </label>
       <textarea
         className="aim-input"
@@ -1076,41 +2675,120 @@ function PhotoField({ value, onChange }) {
         placeholder={"https://example.com/foto-1.jpg\nhttps://example.com/foto-2.jpg"}
         style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
       />
-      <PhotoPreview url={value} />
+      <div style={photoPreviewGridStyle}>
+        {photoItems.length === 0 && urls.length === 0 ? (
+          <div style={photoPreviewPlaceholderStyle}>
+            <span role="img" aria-label="Foto hinzufügen">
+              🏙️
+            </span>
+            <span>Füge Fotos hinzu, um hier eine Vorschau zu sehen.</span>
+          </div>
+        ) : (
+          <>
+            {photoItems.slice(0, 3).map((entry) => (
+              <div key={`entry-${entry.id}`} style={photoPreviewStyle}>
+                <img src={entry.src} alt={entry.note || entry.category} style={photoPreviewImageStyle} />
+              </div>
+            ))}
+            {photoItems.length < 3 &&
+              urls.slice(0, 3 - photoItems.length).map((link, index) => (
+                <div key={`url-${link}-${index}`} style={photoPreviewStyle}>
+                  <img src={link} alt={`Link Vorschau ${index + 1}`} style={photoPreviewImageStyle} />
+                </div>
+              ))}
+            {photoItems.length + urls.length > 3 && (
+              <div style={photoPreviewMoreBadgeStyle}>+{photoItems.length + urls.length - 3} weitere</div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-function PhotoPreview({ url }) {
-  const urls = url
-    .split(/[\n,]/)
-    .map((u) => u.trim())
-    .filter(Boolean);
+function AnalysisPhotoUploader({ entries = [], onChange }) {
+  const items = Array.isArray(entries) ? entries : [];
+
+  const updateEntry = (id, field, newValue) => {
+    if (!onChange) return;
+    onChange(items.map((entry) => (entry.id === id ? { ...entry, [field]: newValue } : entry)));
+  };
+
+  const removeEntry = (id) => {
+    if (!onChange) return;
+    onChange(items.filter((entry) => entry.id !== id));
+  };
+
+  const handleFiles = (event) => {
+    if (!onChange) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    const nextEntries = [...items];
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const src = loadEvent.target?.result?.toString();
+        if (!src) return;
+        nextEntries.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          src,
+          category: "Sonstiges",
+          note: file.name,
+        });
+        onChange([...nextEntries]);
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = "";
+  };
+
   return (
-    <div style={photoPreviewGridStyle}>
-      {urls.length === 0 ? (
-        <div style={photoPreviewPlaceholderStyle}>
-          <span role="img" aria-label="Foto hinzufügen">
-            🏙️
-          </span>
-          <span>Foto-Links einfügen, um hier eine Vorschau zu sehen</span>
+    <div style={photoEntryListStyle}>
+      <div style={photoUploadRowStyle}>
+        <label style={uploadButtonStyle}>
+          Analyse-Foto hochladen
+          <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleFiles} />
+        </label>
+        <span style={{ fontSize: "0.75rem", color: "rgba(226, 232, 240, 0.7)" }}>
+          Dokumentiere Räume für die Kostenschätzung.
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <div style={{ fontSize: "0.85rem", color: "rgba(226, 232, 240, 0.7)" }}>
+          Noch keine Analysebilder hochgeladen.
         </div>
       ) : (
-        urls.slice(0, 3).map((link, index) => (
-          <div key={link + index} style={photoPreviewStyle}>
-            <img
-              src={link}
-              alt={`Vorschau ${index + 1}`}
-              style={photoPreviewImageStyle}
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
+        items.map((entry) => (
+          <div key={entry.id} style={photoEntryItemStyle}>
+            <div style={photoEntryPreviewStyle}>
+              <img src={entry.src} alt={entry.note || entry.category} style={photoPreviewImageStyle} />
+            </div>
+            <div style={photoEntryControlsStyle}>
+              <label style={smallLabelStyle}>Bereich</label>
+              <select
+                value={entry.category || "Sonstiges"}
+                onChange={(e) => updateEntry(entry.id, "category", e.target.value)}
+                style={selectStyle}
+              >
+                {photoCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+              <label style={{ ...smallLabelStyle, marginTop: "0.35rem" }}>Anmerkung</label>
+              <textarea
+                style={photoEntryNoteStyle}
+                value={entry.note || ""}
+                onChange={(e) => updateEntry(entry.id, "note", e.target.value)}
+                placeholder="z.B. Fliesen müssen komplett erneuert werden"
+              />
+            </div>
+            <button type="button" style={photoEntryRemoveStyle} onClick={() => removeEntry(entry.id)}>
+              Entfernen
+            </button>
           </div>
         ))
-      )}
-      {urls.length > 3 && (
-        <div style={photoPreviewMoreBadgeStyle}>+{urls.length - 3} weitere</div>
       )}
     </div>
   );
@@ -1240,7 +2918,13 @@ function PropertyTypeOverview({ breakdown }) {
   );
 }
 
-function AnalyticsSection({ bestByEquity, bestByCashflow, analyticsData, propertiesCount }) {
+function AnalyticsSection({
+  bestByEquity,
+  bestByCashflow,
+  analyticsData,
+  propertiesCount,
+  properties,
+}) {
   if (propertiesCount === 0) {
     return (
       <section style={{ marginTop: "1.5rem" }}>
@@ -1257,6 +2941,7 @@ function AnalyticsSection({ bestByEquity, bestByCashflow, analyticsData, propert
   return (
     <section style={{ marginTop: "1.5rem" }}>
       <h2 style={sectionTitleStyle}>Analysen</h2>
+      <ValuationCharts properties={properties} />
       <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1.5rem" }}>
         {bestByEquity && (
           <div style={summaryCardStyle}>
@@ -1473,16 +3158,33 @@ function getDealQuality(equityReturn) {
   };
 }
 
+function safeFixed(value, digits = 2) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(digits) : "—";
+}
+
+const toPhotoObject = (photo) => {
+  if (!photo) {
+    return { src: "", category: "", note: "" };
+  }
+  if (typeof photo === "string") {
+    return { src: photo, category: "", note: "" };
+  }
+  return {
+    src: photo.src || photo.url || "",
+    category: photo.category || photo.type || "",
+    note: photo.note || photo.description || "",
+  };
+};
+
 function formatPropertyType(type) {
   switch (type) {
     case "wohnung":
       return "Wohnung";
     case "haus":
       return "Haus";
-    case "sanierung":
-      return "Sanierungsobjekt";
-    case "gewerbe":
-      return "Gewerbe";
+    case "garage":
+      return "Garage";
     default:
       return "Unbekannt";
   }
@@ -1532,38 +3234,103 @@ function valuationScenarios(results) {
   ];
 }
 
-function SettingsSection({ onExportJson }) {
-  return (
-    <section style={{ marginTop: "1.5rem" }}>
-      <h2 style={sectionTitleStyle}>Einstellungen</h2>
-      <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>
-        Hier kannst du globale Einstellungen für AIM Real Estate verwalten.
-      </p>
-      <ul style={{ color: "#4b5563", fontSize: "0.9rem", marginBottom: "1rem" }}>
-        <li>Firmenname &amp; Branding von AIM Real Estate</li>
-        <li>Standard-Zinssätze &amp; Annahmen</li>
-        <li>Export / Import von Immobiliendaten</li>
-        <li>Benutzer &amp; Rollen (wenn ihr größer werdet)</li>
-      </ul>
+function ProfileSection({ userProfile, onUpdateProfile, onExportJson }) {
+  const [form, setForm] = useState({
+    name: userProfile?.name || "",
+    company: userProfile?.company || "",
+    email: userProfile?.email || "",
+    password: "",
+  });
+  const [message, setMessage] = useState("");
 
-      <div>
-        <h3
-          style={{
-            fontSize: "0.95rem",
-            marginBottom: "0.4rem",
-            color: "#111827",
-          }}
-        >
-          Daten-Export
-        </h3>
-        <button type="button" onClick={onExportJson} style={primaryButtonStyle}>
-          Immobilien als Datei exportieren
+  useEffect(() => {
+    setForm({
+      name: userProfile?.name || "",
+      company: userProfile?.company || "",
+      email: userProfile?.email || "",
+      password: "",
+    });
+  }, [userProfile]);
+
+  const handleChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = (event) => {
+    event.preventDefault();
+    onUpdateProfile({
+      name: form.name.trim(),
+      company: form.company.trim(),
+      email: form.email.trim(),
+    });
+    setMessage("Profil aktualisiert.");
+    setTimeout(() => setMessage(""), 2200);
+  };
+
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={profileHeaderStyle}>
+        <div>
+          <h2 style={sectionTitleStyle}>Profil & Sicherheit</h2>
+          <p style={{ color: "rgba(226,232,240,0.8)" }}>
+            Passe deine persönlichen Daten an oder exportiere dein Portfolio als JSON-Datei.
+          </p>
+        </div>
+        <button type="button" style={secondaryButtonStyle} onClick={onExportJson}>
+          Portfolio exportieren
         </button>
-        <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.4rem" }}>
-          Es wird eine <code>.json</code>-Datei mit allen gespeicherten Immobilien heruntergeladen. Diese
-          kannst du später wieder importieren oder für Auswertungen / PDFs verwenden.
-        </p>
       </div>
+
+      <form onSubmit={handleSave} style={profileFormStyle}>
+        <div className="input-stack">
+          <label style={labelStyle}>Name</label>
+          <input
+            type="text"
+            value={form.name}
+            onChange={(e) => handleChange("name", e.target.value)}
+            placeholder="z.B. Anna Beispiel"
+            style={inputStyle}
+          />
+        </div>
+        <div className="input-stack">
+          <label style={labelStyle}>Firma (optional)</label>
+          <input
+            type="text"
+            value={form.company}
+            onChange={(e) => handleChange("company", e.target.value)}
+            placeholder="z.B. AIM Ventures"
+            style={inputStyle}
+          />
+        </div>
+        <div className="input-stack">
+          <label style={labelStyle}>E-Mail-Adresse</label>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => handleChange("email", e.target.value)}
+            placeholder="z.B. anna@example.com"
+            style={inputStyle}
+          />
+        </div>
+        <div className="input-stack">
+          <label style={labelStyle}>Neues Passwort (optional)</label>
+          <input
+            type="password"
+            value={form.password}
+            onChange={(e) => handleChange("password", e.target.value)}
+            placeholder="Nur ausfüllen, wenn du es ändern möchtest"
+            style={inputStyle}
+          />
+          <small style={{ color: "rgba(226,232,240,0.6)" }}>
+            Die Passwortänderung wird lokal gespeichert und nicht an einen Server gesendet.
+          </small>
+        </div>
+
+        <button type="submit" style={{ ...primaryButtonStyle, alignSelf: "flex-start" }}>
+          Änderungen speichern
+        </button>
+        {message && <div style={{ color: "#22c55e", fontSize: "0.85rem" }}>{message}</div>}
+      </form>
     </section>
   );
 }
@@ -1652,55 +3419,49 @@ const pageStyle = {
   alignItems: "flex-start",
 };
 
-const portfolioStripStyle = {
-  display: "grid",
-  gridTemplateColumns: "var(--portfolio-grid-columns)",
-  gap: "0.75rem",
-  marginBottom: "1.25rem",
-  padding: "var(--portfolio-padding)",
-  borderRadius: "var(--portfolio-radius)",
-  position: "relative",
-  overflow: "hidden",
-  background: "linear-gradient(130deg, #10172a, #1f3c78 55%, #5ec9ff 105%)",
-  boxShadow: "0 22px 45px rgba(15, 23, 42, 0.5)",
-  border: "1px solid rgba(255, 255, 255, 0.18)",
-  color: "#f9fbff",
-  isolation: "isolate",
-};
-
-const portfolioItemStyle = {
+const registerCardStyle = {
+  width: "100%",
+  maxWidth: "560px",
+  backgroundColor: "rgba(15, 23, 42, 0.85)",
+  borderRadius: "20px",
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  padding: "2.5rem",
+  boxShadow: "0 35px 80px rgba(0, 0, 0, 0.45)",
   display: "flex",
   flexDirection: "column",
-  gap: "0.35rem",
-  minWidth: 0,
-  position: "relative",
-  paddingInline: "0.35rem",
-  maxWidth: "100%",
+  gap: "1.5rem",
+  color: "#f8fafc",
 };
 
-const portfolioLabelStyle = {
-  fontSize: "0.72rem",
-  textTransform: "uppercase",
-  letterSpacing: "0.1em",
-  fontWeight: 700,
-  color: "rgba(248, 250, 252, 0.95)",
-  whiteSpace: "normal",
-  wordBreak: "break-word",
-  lineHeight: 1.15,
+const registerFormStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.85rem",
 };
 
-const portfolioValueStyle = {
-  fontSize: "1.25rem",
-  fontWeight: 800,
-  color: "#ffffff",
-  textShadow: "0 7px 26px rgba(7, 10, 22, 0.7)",
+const consentLabelStyle = {
+  fontSize: "0.85rem",
+  color: "rgba(226, 232, 240, 0.8)",
+  display: "flex",
+  alignItems: "center",
+  gap: "0.45rem",
 };
 
-const portfolioSubLabelStyle = {
-  fontSize: "0.8rem",
-  color: "rgba(239, 246, 255, 0.92)",
-  opacity: 1,
-  lineHeight: 1.2,
+const errorBadgeStyle = {
+  backgroundColor: "rgba(248, 113, 113, 0.2)",
+  border: "1px solid rgba(248, 113, 113, 0.4)",
+  borderRadius: "12px",
+  padding: "0.5rem 0.75rem",
+  color: "#fecaca",
+  fontSize: "0.85rem",
+};
+
+const mockMailStyle = {
+  borderRadius: "14px",
+  border: "1px solid rgba(148,163,184,0.3)",
+  backgroundColor: "rgba(15,23,42,0.5)",
+  padding: "0.85rem 1rem",
+  fontSize: "0.85rem",
 };
 
 const cardStyle = {
@@ -1959,6 +3720,27 @@ const secondaryButtonStyle = {
   flex: "1 1 140px",
 };
 
+const ghostButtonStyle = {
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  borderRadius: "999px",
+  background: "transparent",
+  color: "#f8fafc",
+  padding: "0.4rem 0.8rem",
+  cursor: "pointer",
+};
+
+const tertiaryButtonStyle = {
+  padding: "0.55rem 0.85rem",
+  borderRadius: "999px",
+  border: "1px dashed rgba(148,163,184,0.4)",
+  backgroundColor: "transparent",
+  color: "rgba(226,232,240,0.85)",
+  fontSize: "0.85rem",
+  fontWeight: 500,
+  cursor: "pointer",
+  flex: "0 0 auto",
+};
+
 const resultRowStyle = {
   padding: "0.75rem 0.9rem",
   borderRadius: "10px",
@@ -2026,6 +3808,12 @@ const smallLinkButtonStyle = {
   textDecoration: "underline",
 };
 
+const tableActionsStyle = {
+  display: "flex",
+  gap: "0.4rem",
+  flexWrap: "wrap",
+};
+
 const filterBarStyle = {
   display: "flex",
   gap: "0.5rem",
@@ -2071,6 +3859,7 @@ const detailImageWrapperStyle = {
   border: "1px solid rgba(148, 163, 184, 0.25)",
   marginBottom: "1rem",
   backgroundColor: "rgba(15, 23, 42, 0.4)",
+  position: "relative",
 };
 
 const detailImageStyle = {
@@ -2078,6 +3867,18 @@ const detailImageStyle = {
   height: "100%",
   objectFit: "cover",
   display: "block",
+};
+
+const photoTagStyle = {
+  position: "absolute",
+  left: "0.75rem",
+  bottom: "0.75rem",
+  backgroundColor: "rgba(2,6,23,0.75)",
+  padding: "0.35rem 0.75rem",
+  borderRadius: "12px",
+  color: "#f8fafc",
+  fontSize: "0.75rem",
+  maxWidth: "90%",
 };
 
 const detailGalleryStyle = {
@@ -2091,6 +3892,24 @@ const detailGalleryStyle = {
 const helperTextStyle = {
   color: "rgba(226, 232, 240, 0.8)",
   fontSize: "0.78rem",
+};
+
+const photoUploadRowStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "0.6rem",
+  marginBottom: "0.5rem",
+};
+
+const uploadButtonStyle = {
+  borderRadius: "999px",
+  padding: "0.45rem 0.85rem",
+  border: "1px solid rgba(96, 165, 250, 0.6)",
+  color: "#bfdbfe",
+  fontSize: "0.85rem",
+  cursor: "pointer",
+  background: "linear-gradient(120deg, rgba(59,130,246,0.25), rgba(14,165,233,0.2))",
 };
 
 const photoFieldTitleStyle = {
@@ -2175,55 +3994,447 @@ const photoPreviewMoreBadgeStyle = {
   border: "1px solid rgba(148, 163, 184, 0.4)",
 };
 
-const typeSplitGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-  gap: "0.9rem",
-  marginTop: "1rem",
+const photoEntryListStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.65rem",
+  marginBottom: "0.75rem",
 };
 
-const typeSplitCardStyle = {
+const photoEntryItemStyle = {
+  display: "flex",
+  gap: "0.75rem",
+  borderRadius: "14px",
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  padding: "0.65rem",
+  flexWrap: "wrap",
+};
+
+const photoEntryPreviewStyle = {
+  width: "120px",
+  height: "100px",
+  borderRadius: "12px",
+  overflow: "hidden",
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
+  flexShrink: 0,
+};
+
+const photoEntryControlsStyle = {
+  flex: 1,
+  minWidth: "180px",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const smallLabelStyle = {
+  fontSize: "0.75rem",
+  color: "rgba(226, 232, 240, 0.75)",
+};
+
+const photoEntryNoteStyle = {
+  ...inputStyle,
+  minHeight: "60px",
+  resize: "vertical",
+  marginTop: "0.2rem",
+};
+
+const photoEntryRemoveStyle = {
+  border: "1px solid rgba(248, 113, 113, 0.45)",
+  background: "transparent",
+  color: "#f87171",
+  borderRadius: "999px",
+  padding: "0.35rem 0.8rem",
+  cursor: "pointer",
+  height: "fit-content",
+};
+
+const editBannerStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(96,165,250,0.45)",
+  backgroundColor: "rgba(37,99,235,0.15)",
+  padding: "0.6rem 0.8rem",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  fontSize: "0.85rem",
+  color: "#bfdbfe",
+};
+
+const editBannerLinkStyle = {
+  border: "none",
+  background: "transparent",
+  color: "#93c5fd",
+  cursor: "pointer",
+  fontSize: "0.8rem",
+  textDecoration: "underline",
+};
+
+const analysisCoachGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gap: "1rem",
+};
+
+const analysisCoachCardStyle = {
   borderRadius: "16px",
-  padding: "1rem",
+  border: "1px solid rgba(96, 165, 250, 0.35)",
+  backgroundColor: "rgba(15, 23, 42, 0.6)",
+  padding: "1.2rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+};
+
+const analysisFormGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "0.65rem",
+};
+
+const analysisResultCardStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  padding: "1.2rem",
   display: "flex",
   flexDirection: "column",
   gap: "0.8rem",
 };
 
-const typeSplitHeaderStyle = {
+const analysisResultHeaderStyle = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  alignItems: "flex-start",
+  gap: "1rem",
+  flexWrap: "wrap",
 };
 
-const typeSplitLabelStyle = {
-  fontSize: "0.9rem",
+const analysisResultLabelStyle = {
+  fontSize: "0.75rem",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "rgba(226, 232, 240, 0.6)",
+};
+
+const analysisResultValueStyle = {
+  fontSize: "1.35rem",
+  fontWeight: 700,
   color: "#f8fafc",
-  fontWeight: 600,
 };
 
-const typeSplitCountStyle = {
-  fontSize: "0.85rem",
-  padding: "0.1rem 0.65rem",
-  borderRadius: "999px",
-  border: "1px solid rgba(148, 163, 184, 0.4)",
+const analysisResultHintStyle = {
+  fontSize: "0.78rem",
+  color: "rgba(226, 232, 240, 0.75)",
 };
 
-const typeSplitMetricsStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+const analysisVerdictStyle = {
+  fontSize: "1.1rem",
+  fontWeight: 700,
+};
+
+const analysisBreakdownStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.65rem",
+};
+
+const analysisBreakdownRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "0.8rem",
+  padding: "0.65rem 0.35rem",
+  borderBottom: "1px solid rgba(148, 163, 184, 0.2)",
+};
+
+const analysisFocusStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(96, 165, 250, 0.3)",
+  padding: "0.75rem",
+  backgroundColor: "rgba(37, 99, 235, 0.12)",
+};
+
+const analysisFocusListStyle = {
+  margin: "0.35rem 0 0",
+  paddingLeft: "1.1rem",
+  color: "rgba(226, 232, 240, 0.85)",
+  fontSize: "0.82rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+};
+
+const sectionSubtitleStyle = {
+  fontSize: "0.95rem",
+  color: "rgba(226, 232, 240, 0.95)",
+  marginBottom: "0.35rem",
+};
+
+const areaDraftCardStyle = {
+  borderRadius: "14px",
+  border: "1px dashed rgba(96, 165, 250, 0.6)",
+  padding: "0.9rem",
+  marginTop: "0.8rem",
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  display: "flex",
+  flexDirection: "column",
   gap: "0.6rem",
 };
 
-const typeSplitMetricLabelStyle = {
-  fontSize: "0.75rem",
-  color: "rgba(226, 232, 240, 0.7)",
+const areaDraftTitleStyle = {
+  margin: 0,
+  fontSize: "0.95rem",
+  color: "#f8fafc",
 };
 
-const typeSplitMetricValueStyle = {
-  fontSize: "0.95rem",
-  fontWeight: 600,
+const areaDraftHintStyle = {
+  fontSize: "0.75rem",
+  color: "rgba(226, 232, 240, 0.65)",
+};
+
+const areaPhotoPreviewStyle = {
+  borderRadius: "12px",
+  border: "1px dashed rgba(148, 163, 184, 0.4)",
+  padding: "0.4rem",
+  minHeight: "90px",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.35rem",
+  backgroundColor: "rgba(15,23,42,0.35)",
+  marginTop: "0.35rem",
+  position: "relative",
+};
+
+const renovationPhotoThumbStyle = {
+  width: "78px",
+  height: "78px",
+  borderRadius: "10px",
+  overflow: "hidden",
+  position: "relative",
+  border: "1px solid rgba(148,163,184,0.35)",
+  backgroundColor: "rgba(15,23,42,0.4)",
+};
+
+const renovationPhotoImgStyle = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  display: "block",
+};
+
+const photoRemoveButtonStyle = {
+  position: "absolute",
+  top: "4px",
+  right: "4px",
+  border: "none",
+  backgroundColor: "rgba(15,23,42,0.75)",
   color: "#f8fafc",
+  borderRadius: "999px",
+  width: "18px",
+  height: "18px",
+  fontSize: "0.75rem",
+  cursor: "pointer",
+};
+
+const renovationAreaListStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+  marginTop: "0.5rem",
+};
+
+const renovationAreaCardStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(148,163,184,0.25)",
+  padding: "0.75rem",
+  backgroundColor: "rgba(15,23,42,0.45)",
+};
+
+const renovationAreaHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.5rem",
+};
+
+const areaRemoveButtonStyle = {
+  border: "none",
+  background: "transparent",
+  color: "#f87171",
+  fontSize: "0.8rem",
+  cursor: "pointer",
+};
+
+const renovationPhotoGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(70px, 1fr))",
+  gap: "0.35rem",
+  marginTop: "0.5rem",
+};
+
+const renovationBreakdownStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.6rem",
+  margin: "0.85rem 0",
+};
+
+const renovationBreakdownRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "0.6rem",
+  borderBottom: "1px solid rgba(148,163,184,0.2)",
+  paddingBottom: "0.45rem",
+};
+
+const errorTextStyle = {
+  color: "#f87171",
+  fontSize: "0.82rem",
+  marginTop: "0.45rem",
+};
+
+const historyCardStyle = {
+  marginTop: "1rem",
+  borderRadius: "12px",
+  border: "1px solid rgba(148,163,184,0.25)",
+  padding: "0.75rem",
+  backgroundColor: "rgba(15,23,42,0.35)",
+};
+
+const historyListStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+};
+
+const historyItemStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.5rem",
+  padding: "0.4rem 0",
+  borderBottom: "1px solid rgba(148,163,184,0.15)",
+};
+
+const areaPhotoEmptyStyle = {
+  flex: "1 1 100%",
+  minHeight: "70px",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "rgba(226,232,240,0.6)",
+  fontSize: "0.85rem",
+  textAlign: "center",
+  gap: "0.2rem",
+};
+
+const renovationEmptyStateStyle = {
+  borderRadius: "12px",
+  border: "1px dashed rgba(148,163,184,0.4)",
+  padding: "1rem",
+  backgroundColor: "rgba(15,23,42,0.35)",
+  textAlign: "center",
+  color: "rgba(226,232,240,0.8)",
+  fontSize: "0.9rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.4rem",
+};
+
+const renovationEmptyIconStyle = {
+  fontSize: "1.6rem",
+};
+
+const profileHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.75rem",
+  flexWrap: "wrap",
+};
+
+const profileFormStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148,163,184,0.3)",
+  backgroundColor: "rgba(15,23,42,0.45)",
+  padding: "1.25rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+};
+
+
+const marketAnalysisGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: "1rem",
+};
+
+const marketFormCardStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(96, 165, 250, 0.35)",
+  backgroundColor: "rgba(15, 23, 42, 0.55)",
+  padding: "1.2rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+};
+
+const marketResultCardStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148, 163, 184, 0.35)",
+  backgroundColor: "rgba(15, 23, 42, 0.45)",
+  padding: "1.2rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.9rem",
+};
+
+const marketResultGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0.75rem",
+};
+
+const analysisComparisonCardStyle = {
+  borderRadius: "14px",
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  padding: "0.9rem 1rem",
+  backgroundColor: "rgba(15, 23, 42, 0.55)",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.75rem",
+  flexWrap: "wrap",
+};
+
+const progressTrackStyle = {
+  width: "100%",
+  height: "8px",
+  borderRadius: "999px",
+  backgroundColor: "rgba(148, 163, 184, 0.25)",
+  overflow: "hidden",
+};
+
+const progressBarStyle = {
+  height: "100%",
+  borderRadius: "999px",
+  background: "linear-gradient(90deg, #34d399, #10b981)",
+};
+
+const analysisPreviewGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: "0.4rem",
+};
+
+const analysisPreviewFrameStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  overflow: "hidden",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
 };
 
 const infoHeroStyle = {
@@ -2298,6 +4509,128 @@ const infoChecklistListStyle = {
   gap: "0.4rem",
   color: "rgba(226, 232, 240, 0.85)",
   fontSize: "0.85rem",
+};
+
+const valuationChartsWrapperStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gap: "1rem",
+  marginBottom: "1rem",
+};
+
+const donutCardStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
+  padding: "1rem",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "0.6rem",
+};
+
+const donutTitleStyle = {
+  margin: 0,
+  color: "#f8fafc",
+  fontSize: "0.95rem",
+};
+
+const donutCenterStyle = {
+  position: "absolute",
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+  textAlign: "center",
+  color: "#f8fafc",
+  fontSize: "0.85rem",
+};
+
+const donutLegendStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  width: "100%",
+  fontSize: "0.75rem",
+  color: "rgba(226, 232, 240, 0.8)",
+};
+
+const barCardStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  backgroundColor: "rgba(15, 23, 42, 0.4)",
+  padding: "1rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+};
+
+const barRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.6rem",
+};
+
+const barTrackStyle = {
+  flex: 1,
+  height: "8px",
+  borderRadius: "999px",
+  backgroundColor: "rgba(255,255,255,0.15)",
+  overflow: "hidden",
+};
+
+const barFillStyle = {
+  height: "100%",
+  borderRadius: "999px",
+};
+
+const typeSplitGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: "0.9rem",
+  marginTop: "1rem",
+};
+
+const typeSplitCardStyle = {
+  borderRadius: "16px",
+  padding: "1rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.8rem",
+};
+
+const typeSplitHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+};
+
+const typeSplitLabelStyle = {
+  fontSize: "0.9rem",
+  color: "#f8fafc",
+  fontWeight: 600,
+};
+
+const typeSplitCountStyle = {
+  fontSize: "0.85rem",
+  padding: "0.1rem 0.65rem",
+  borderRadius: "999px",
+  border: "1px solid rgba(148, 163, 184, 0.4)",
+};
+
+const typeSplitMetricsStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: "0.6rem",
+};
+
+const typeSplitMetricLabelStyle = {
+  fontSize: "0.75rem",
+  color: "rgba(226, 232, 240, 0.7)",
+};
+
+const typeSplitMetricValueStyle = {
+  fontSize: "0.95rem",
+  fontWeight: 600,
+  color: "#f8fafc",
 };
 
 const valuationIntroStyle = {
