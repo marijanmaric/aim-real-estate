@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import aimLogo from "./assets/aim-logo.svg";
 import PortfolioStrip from "./components/PortfolioStrip";
+import * as backend from "./services/backend";
 
 const STORAGE_KEY = "brickplan-properties-v1";
+const ACCOUNTS_KEY = "aim-realestate-accounts";
+const RENOVATION_REQUESTS_KEY = "aim-renovation-requests";
 const USER_KEY = "aim-realestate-user";
 const generateVerificationCode = () =>
   Math.floor(100000 + Math.random() * 900000).toString();
@@ -107,6 +110,51 @@ const PROPERTY_FILTERS = [
   { value: "haus", label: "Häuser" },
   { value: "garage", label: "Garagen" },
 ];
+
+const getPropertyStorageKey = (userId) => `${STORAGE_KEY}-${userId || "guest"}`;
+
+const loadAccounts = () => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(ACCOUNTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveAccounts = (accounts) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  } catch {
+    // ignore
+  }
+};
+
+const hashPassword = (password) => {
+  try {
+    const salted = `aim:${password}`;
+    return typeof btoa === "function"
+      ? btoa(unescape(encodeURIComponent(salted)))
+      : Buffer.from(salted).toString("base64");
+  } catch {
+    return password;
+  }
+};
+
+const verifyPassword = (password, hash) => hashPassword(password) === hash;
+
+const mapAccountToProfile = (account) => ({
+  id: account.id,
+  firstName: account.firstName || "",
+  lastName: account.lastName || "",
+  company: account.company || "",
+  email: account.email,
+  createdAt: account.createdAt,
+});
 
 const RENOVATION_AREA_OPTIONS = [
   { value: "kitchen", label: "Küche" },
@@ -236,38 +284,72 @@ function App() {
       return null;
     }
   });
-  const [properties, setProperties] = useState(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed)
-        ? parsed
-            .map((p) => normalizeProperty(p))
-            .filter((item) => item !== null)
-        : [];
-    } catch {
-      return [];
-    }
-  });
+  const [properties, setProperties] = useState([]);
   const [results, setResults] = useState(null);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [activeTab, setActiveTab] = useState("info");
   const [propertyFilter, setPropertyFilter] = useState("all");
   const [editingPropertyId, setEditingPropertyId] = useState(null);
   const [pendingVerification, setPendingVerification] = useState(null);
+  const [verificationCode, setVerificationCode] = useState(null);
+  const [authView, setAuthView] = useState(() => {
+    if (typeof window === "undefined") return "login";
+    try {
+      const raw = window.localStorage.getItem(USER_KEY);
+      return raw ? null : "register";
+    } catch {
+      return "login";
+    }
+  });
+  const [passwordResetDraft, setPasswordResetDraft] = useState(null);
+  const [passwordResetCode, setPasswordResetCode] = useState(null);
+  const [renovationRequests, setRenovationRequests] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(RENOVATION_REQUESTS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (properties.length === 0) {
-      window.localStorage.removeItem(STORAGE_KEY);
+    if (!userProfile) {
+      setProperties([]);
       return;
     }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(properties));
-  }, [properties]);
+    try {
+      const raw = window.localStorage.getItem(getPropertyStorageKey(userProfile.id));
+      if (!raw) {
+        setProperties([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      setProperties(
+        Array.isArray(parsed)
+          ? parsed
+              .map((p) => normalizeProperty(p))
+              .filter((item) => item !== null)
+          : []
+      );
+    } catch {
+      setProperties([]);
+    }
+  }, [userProfile]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!userProfile) return;
+    const key = getPropertyStorageKey(userProfile.id);
+    if (!properties || properties.length === 0) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(properties));
+  }, [properties, userProfile]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -278,9 +360,197 @@ function App() {
     window.localStorage.setItem(USER_KEY, JSON.stringify(userProfile));
   }, [userProfile]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(RENOVATION_REQUESTS_KEY, JSON.stringify(renovationRequests));
+  }, [renovationRequests]);
+
   const handleFormChange = useCallback((field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   }, []);
+
+  const handleCreateRenovationRequest = useCallback((request) => {
+    setRenovationRequests((prev) => [...prev, request]);
+    if (backend.hasRemoteBackend) {
+      backend.submitRenovationRequest(request).catch((error) => {
+        console.warn("Remote Anfrage fehlgeschlagen:", error);
+      });
+    }
+  }, []);
+
+  const handleUpdateRenovationRequest = useCallback((id, updates) => {
+    setRenovationRequests((prev) => {
+      const next = prev.map((req) =>
+        req.id === id
+          ? { ...req, ...updates, updatedAt: updates.updatedAt || new Date().toISOString() }
+          : req
+      );
+
+      if (backend.hasRemoteBackend) {
+        const current = next.find((req) => req.id === id);
+        if (current) {
+          backend.updateRenovationRequest(id, current).catch((error) => {
+            console.warn("Remote Update fehlgeschlagen:", error);
+          });
+        }
+      }
+
+      return next;
+    });
+  }, []);
+
+  const handleRegisterSubmit = useCallback(async (payload) => {
+    if (backend.hasRemoteBackend) {
+      const remote = await backend.registerUser(payload);
+      if (remote.ok) {
+        if (remote.profile) {
+          setUserProfile(remote.profile);
+          setAuthView(null);
+        }
+        return { ok: true };
+      }
+      if (!remote.allowFallback) {
+        return { ok: false, error: remote.error || "Registrierung fehlgeschlagen." };
+      }
+    }
+
+    const accounts = loadAccounts();
+    const email = payload.email.trim().toLowerCase();
+    if (accounts.some((acc) => acc.email === email)) {
+      return { ok: false, error: "Diese E-Mail ist bereits registriert." };
+    }
+    const draft = {
+      id: Date.now().toString(36),
+      firstName: (payload.firstName || "").trim(),
+      lastName: (payload.lastName || "").trim(),
+      company: (payload.company || "").trim(),
+      email,
+      passwordHash: hashPassword(payload.password),
+      createdAt: new Date().toISOString(),
+    };
+    setPendingVerification(draft);
+    const code = generateVerificationCode();
+    setVerificationCode(code);
+    setAuthView("verify");
+    return { ok: true };
+  }, []);
+
+  const handleVerificationSubmit = useCallback(
+    (code) => {
+      if (!pendingVerification || !verificationCode) return false;
+      if (code !== verificationCode) return false;
+      const accounts = loadAccounts();
+      accounts.push({
+        id: pendingVerification.id,
+        firstName: pendingVerification.firstName,
+        lastName: pendingVerification.lastName,
+        company: pendingVerification.company,
+        email: pendingVerification.email,
+        passwordHash: pendingVerification.passwordHash,
+        createdAt: pendingVerification.createdAt,
+      });
+      saveAccounts(accounts);
+      setUserProfile(mapAccountToProfile(pendingVerification));
+      setPendingVerification(null);
+      setVerificationCode(null);
+      setAuthView(null);
+      return true;
+    },
+    [pendingVerification, verificationCode]
+  );
+
+  const handleResendVerification = useCallback(() => {
+    if (!pendingVerification) return;
+    setVerificationCode(generateVerificationCode());
+  }, [pendingVerification]);
+
+  const handleLoginSubmit = useCallback(async (payload) => {
+    if (backend.hasRemoteBackend) {
+      const remote = await backend.loginUser(payload);
+      if (remote.ok && remote.profile) {
+        setUserProfile(remote.profile);
+        setAuthView(null);
+        return { ok: true };
+      }
+      if (remote.ok) {
+        return { ok: true };
+      }
+      if (!remote.allowFallback) {
+        return { ok: false, error: remote.error || "Anmeldung fehlgeschlagen." };
+      }
+    }
+
+    const accounts = loadAccounts();
+    const email = payload.email.trim().toLowerCase();
+    const account = accounts.find((acc) => acc.email === email);
+    if (!account) {
+      return { ok: false, error: "Kein Konto mit dieser E-Mail gefunden." };
+    }
+    if (!verifyPassword(payload.password, account.passwordHash)) {
+      return { ok: false, error: "Passwort ist nicht korrekt." };
+    }
+    setUserProfile(mapAccountToProfile(account));
+    setAuthView(null);
+    return { ok: true };
+  }, []);
+
+  const handleRequestPasswordReset = useCallback(async (email) => {
+    if (backend.hasRemoteBackend) {
+      const remote = await backend.requestPasswordReset(email);
+      if (remote.ok) {
+        return { ok: true };
+      }
+      if (!remote.allowFallback) {
+        return { ok: false, error: remote.error || "Zurücksetzen fehlgeschlagen." };
+      }
+    }
+
+    const accounts = loadAccounts();
+    const account = accounts.find((acc) => acc.email === email.trim().toLowerCase());
+    if (!account) {
+      return { ok: false, error: "Unter dieser E-Mail existiert kein Konto." };
+    }
+    setPasswordResetDraft(account);
+    setPasswordResetCode(generateVerificationCode());
+    setAuthView("reset-verify");
+    return { ok: true };
+  }, []);
+
+  const handleConfirmPasswordReset = useCallback(
+    async (payload) => {
+      if (backend.hasRemoteBackend) {
+        const remote = await backend.confirmPasswordReset(payload);
+        if (remote.ok) {
+          return { ok: true };
+        }
+        if (!remote.allowFallback) {
+          return { ok: false, error: remote.error || "Zurücksetzen fehlgeschlagen." };
+        }
+      }
+
+      if (!passwordResetDraft || !passwordResetCode) {
+        return { ok: false, error: "Kein Reset-Vorgang aktiv." };
+      }
+      if (payload.code !== passwordResetCode) {
+        return { ok: false, error: "Code ist nicht korrekt." };
+      }
+      const accounts = loadAccounts();
+      const idx = accounts.findIndex((acc) => acc.id === passwordResetDraft.id);
+      if (idx === -1) {
+        return { ok: false, error: "Konto nicht gefunden." };
+      }
+      accounts[idx] = {
+        ...accounts[idx],
+        passwordHash: hashPassword(payload.password),
+      };
+      saveAccounts(accounts);
+      setPasswordResetDraft(null);
+      setPasswordResetCode(null);
+      setAuthView("login");
+      return { ok: true };
+    },
+    [passwordResetDraft, passwordResetCode]
+  );
 
   const handleCalculate = useCallback(() => {
     const {
@@ -473,7 +743,10 @@ function App() {
     if (!sure) return;
     setProperties([]);
     setSelectedProperty(null);
-  }, []);
+    if (typeof window !== "undefined" && userProfile) {
+      window.localStorage.removeItem(getPropertyStorageKey(userProfile.id));
+    }
+  }, [userProfile]);
 
   const handleExportJson = useCallback(() => {
     if (properties.length === 0) {
@@ -493,15 +766,33 @@ function App() {
     URL.revokeObjectURL(url);
   }, [properties]);
 
-const handleRegister = useCallback((profile) => {
-    setUserProfile(profile);
-  }, []);
-
   const handleSignOut = useCallback(() => {
     const sure = window.confirm("Möchtest du dich wirklich abmelden? Deine Daten bleiben im Browser erhalten.");
     if (!sure) return;
+    setProperties([]);
+    setSelectedProperty(null);
+    setPendingVerification(null);
+    setVerificationCode(null);
+    setPasswordResetDraft(null);
+    setPasswordResetCode(null);
+    setAuthView("login");
     setUserProfile(null);
   }, []);
+
+  const isAdmin =
+    !!(
+      userProfile &&
+      userProfile.email &&
+      (userProfile.email.toLowerCase().startsWith("admin") ||
+        userProfile.email.toLowerCase().includes("+admin") ||
+        userProfile.email.toLowerCase().endsWith("@aimrealestate.com"))
+    );
+
+  const navTabs = useMemo(
+    () =>
+      isAdmin ? [...NAV_TABS, { key: "admin", label: "Admin" }] : NAV_TABS,
+    [isAdmin]
+  );
 
   const {
     totalCashflow,
@@ -553,7 +844,17 @@ const handleRegister = useCallback((profile) => {
   }, [properties]);
 
   const handleUpdateProfile = useCallback((updates) => {
-    setUserProfile((prev) => ({ ...(prev || {}), ...updates }));
+    setUserProfile((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...updates };
+      const accounts = loadAccounts();
+      const idx = accounts.findIndex((acc) => acc.id === prev.id);
+      if (idx >= 0) {
+        accounts[idx] = { ...accounts[idx], ...updates };
+        saveAccounts(accounts);
+      }
+      return next;
+    });
   }, []);
 
 const propertyTypeStats = useMemo(() => {
@@ -644,42 +945,56 @@ const propertyTypeStats = useMemo(() => {
   }, [properties]);
 
   if (!userProfile) {
-    if (pendingVerification) {
+    if (authView === "verify" && pendingVerification) {
       return (
         <VerificationScreen
-          draft={pendingVerification.draft}
-          code={pendingVerification.code}
-          onVerify={(input) => {
-            if (input.trim() === pendingVerification.code) {
-              handleRegister(pendingVerification.draft);
-              setPendingVerification(null);
-              return true;
-            }
-            return false;
+          draft={pendingVerification}
+          code={verificationCode}
+          onVerify={handleVerificationSubmit}
+          onResend={handleResendVerification}
+          onCancel={() => {
+            setPendingVerification(null);
+            setVerificationCode(null);
+            setAuthView("register");
           }}
-          onResend={() => {
-            const newCode = generateVerificationCode();
-            setPendingVerification((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    code: newCode,
-                  }
-                : null
-            );
+        />
+      );
+    }
+    if (authView === "login") {
+      return (
+        <LoginScreen
+          onLogin={handleLoginSubmit}
+          onSwitchToRegister={() => setAuthView("register")}
+          onForgotPassword={() => setAuthView("reset")}
+        />
+      );
+    }
+    if (authView === "reset") {
+      return (
+        <PasswordResetRequest
+          onRequest={handleRequestPasswordReset}
+          onBack={() => setAuthView("login")}
+        />
+      );
+    }
+    if (authView === "reset-verify" && passwordResetDraft) {
+      return (
+        <PasswordResetVerify
+          draft={passwordResetDraft}
+          code={passwordResetCode}
+          onSubmit={handleConfirmPasswordReset}
+          onCancel={() => {
+            setPasswordResetDraft(null);
+            setPasswordResetCode(null);
+            setAuthView("login");
           }}
-          onCancel={() => setPendingVerification(null)}
         />
       );
     }
     return (
       <RegistrationScreen
-        onRegister={(draft) => {
-          setPendingVerification({
-            draft,
-            code: generateVerificationCode(),
-          });
-        }}
+        onRegister={handleRegisterSubmit}
+        onSwitchToLogin={() => setAuthView("login")}
       />
     );
   }
@@ -689,7 +1004,7 @@ const propertyTypeStats = useMemo(() => {
       <div style={cardStyle} className="app-root-card">
         <BrandBar />
         <nav style={navStyle} className="app-nav">
-          {NAV_TABS.map((tab) => (
+          {navTabs.map((tab) => (
             <button
               key={tab.key}
               type="button"
@@ -725,17 +1040,11 @@ const propertyTypeStats = useMemo(() => {
           <div style={headerRightStyle}>
             <div style={{ textAlign: "right", marginRight: "0.5rem" }}>
               <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>Firma</div>
-      <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>
-        {userProfile?.company || userProfile?.name || "AIM RealEstate Analytics"}
-      </div>
+              <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+                {userProfile?.company || userProfile?.name || "AIM RealEstate Analytics"}
+              </div>
             </div>
             <span style={badgeStyle}>MVP · v0.5</span>
-            <button type="button" onClick={() => setActiveTab("profile")} style={ghostButtonStyle}>
-              Profil
-            </button>
-            <button type="button" onClick={handleSignOut} style={ghostButtonStyle}>
-              Abmelden
-            </button>
           </div>
         </header>
 
@@ -786,12 +1095,24 @@ const propertyTypeStats = useMemo(() => {
 
         {activeTab === "analysis" && <MarketAnalysisTab />}
 
-        {activeTab === "renovation" && <RenovationCoachTab properties={properties} />}
+        {activeTab === "renovation" && (
+          <RenovationCoachTab
+            properties={properties}
+            requests={renovationRequests}
+            onCreateRequest={handleCreateRenovationRequest}
+            currentUserId={userProfile?.id || "guest"}
+          />
+        )}
 
         {activeTab === "info" && (
           <InfoTab
             onStart={() => setActiveTab("properties")}
-            userName={userProfile?.name || userProfile?.email}
+            userName={
+              userProfile
+                ? [userProfile.firstName, userProfile.lastName].filter(Boolean).join(" ") ||
+                  userProfile.email
+                : null
+            }
           />
         )}
 
@@ -802,7 +1123,26 @@ const propertyTypeStats = useMemo(() => {
             onExportJson={handleExportJson}
           />
         )}
+
+        {activeTab === "admin" && (
+          isAdmin ? (
+            <AdminPanel
+              requests={renovationRequests}
+              onUpdateRequest={handleUpdateRenovationRequest}
+            />
+          ) : (
+            <section style={{ marginTop: "1.5rem" }}>
+              <h2 style={sectionTitleStyle}>Admin</h2>
+              <p style={{ color: "rgba(226,232,240,0.8)" }}>
+                Du hast keinen Zugriff auf den Admin-Bereich.
+              </p>
+            </section>
+          )
+        )}
       </div>
+      <button type="button" style={floatingLogoutStyle} onClick={handleSignOut}>
+        Abmelden
+      </button>
     </div>
   );
 }
@@ -1300,7 +1640,7 @@ function MainAndList({
   );
 }
 
-function RenovationCoachTab({ properties }) {
+function RenovationCoachTab({ properties, requests = [], onCreateRequest, currentUserId }) {
   const hasPhotos = properties.some((p) => p.photos && p.photos.length > 0);
   const [meta, setMeta] = useState({
     objectName: "",
@@ -1315,8 +1655,7 @@ function RenovationCoachTab({ properties }) {
     photos: [],
   });
   const [areas, setAreas] = useState([]);
-  const [estimation, setEstimation] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [submitMessage, setSubmitMessage] = useState("");
   const [error, setError] = useState("");
 
   const districtOptions = REGION_DATA[meta.state]?.districts || [];
@@ -1388,24 +1727,42 @@ function RenovationCoachTab({ properties }) {
       setError("Füge mindestens einen Bereich mit Fotos hinzu.");
       return;
     }
-    const result = estimateRenovationFromAreas(meta, areas);
-    if (!result) {
-      setError("Berechnung fehlgeschlagen. Bitte überprüfe deine Eingaben.");
+    if (typeof onCreateRequest !== "function") {
+      setError("Speichern nicht möglich. Bitte später erneut versuchen.");
       return;
     }
+    const request = {
+      id: Date.now().toString(36),
+      userId: currentUserId,
+      meta,
+      areas: areas.map((area) => ({
+        ...area,
+        estimateMin: area.estimateMin || null,
+        estimateMax: area.estimateMax || null,
+      })),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      adminNote: "",
+      totalMin: null,
+      totalMax: null,
+    };
+    onCreateRequest(request);
+    setMeta({
+      objectName: "",
+      totalArea: "",
+      state: "wien",
+      district: REGION_DATA.wien.districts[0].value,
+      notes: "",
+    });
+    setAreas([]);
+    setAreaDraft({ type: "kitchen", description: "", photos: [] });
     setError("");
-    setEstimation(result);
-    setHistory((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        timestamp: new Date().toISOString(),
-        meta,
-        areas,
-        result,
-      },
-    ]);
+    setSubmitMessage("Analyse-Anfrage gesendet. Wir melden uns mit einer Schätzung.");
+    setTimeout(() => setSubmitMessage(""), 3500);
   };
+
+  const userRequests = requests.filter((req) => req.userId === currentUserId);
 
   return (
     <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -1587,16 +1944,10 @@ function RenovationCoachTab({ properties }) {
         <div style={analysisResultCardStyle}>
           <div style={analysisResultHeaderStyle}>
             <div>
-              <span style={analysisResultLabelStyle}>Gesamtschätzung</span>
-              <div style={analysisResultValueStyle}>
-                {estimation ? `${formatEuro(estimation.totalMin)} – ${formatEuro(estimation.totalMax)}` : "—"}
+              <span style={analysisResultLabelStyle}>Analyse anfordern</span>
+              <div style={analysisResultHintStyle}>
+                Sobald du die Anfrage sendest, landet sie in unserem Backend zur Prüfung.
               </div>
-              {estimation && (
-                <div style={analysisResultHintStyle}>
-                  {estimation.stateLabel}
-                  {estimation.districtLabel ? ` · ${estimation.districtLabel}` : ""}
-                </div>
-              )}
             </div>
             <div style={{ textAlign: "right" }}>
               <span style={analysisResultLabelStyle}>Bereiche</span>
@@ -1604,37 +1955,11 @@ function RenovationCoachTab({ properties }) {
             </div>
           </div>
 
-          {estimation ? (
-            <div style={renovationBreakdownStyle}>
-              {estimation.breakdown.map((item) => (
-                <div key={item.id} style={renovationBreakdownRowStyle}>
-                  <div>
-                    <div style={{ fontSize: "0.9rem", color: "#f8fafc" }}>{item.label}</div>
-                    <div style={{ fontSize: "0.78rem", color: "rgba(226,232,240,0.7)" }}>
-                      {item.description || "Keine Beschreibung"}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontWeight: 600 }}>
-                      {formatEuro(item.min)} – {formatEuro(item.max)}
-                    </div>
-                    <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.6)" }}>
-                      {item.photoCount} Foto{item.photoCount === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={renovationEmptyStateStyle}>
-              <span style={renovationEmptyIconStyle}>🧰</span>
-              <strong>Keine Analyse berechnet</strong>
-              <span>
-                Füge links mindestens einen Bereich mit Fotos hinzu und klicke dann auf
-                „Renovierungskosten schätzen“.
-              </span>
-            </div>
-          )}
+          <div style={renovationEmptyStateStyle}>
+            <span style={renovationEmptyIconStyle}>🧰</span>
+            <strong>Bereichsliste kontrollieren</strong>
+            <span>Füge links mindestens einen Bereich mit Fotos hinzu und sende dann deine Analyse.</span>
+          </div>
 
           <button
             type="button"
@@ -1646,41 +1971,91 @@ function RenovationCoachTab({ properties }) {
             }}
             onClick={handleEstimate}
           >
-            Renovierungskosten schätzen
+            Analyse anfordern
           </button>
           {error && <div style={errorTextStyle}>{error}</div>}
-
-          {history.length > 0 && (
-            <div style={historyCardStyle}>
-              <div style={{ fontSize: "0.85rem", color: "rgba(226,232,240,0.8)", marginBottom: "0.4rem" }}>
-                Gespeicherte Analysen
-              </div>
-              <div style={historyListStyle}>
-                {history.slice(-4).map((entry) => (
-                  <div key={entry.id} style={historyItemStyle}>
-                    <div>
-                      <strong>{entry.result.objectName || "Unbenanntes Objekt"}</strong>
-                      <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.65)" }}>
-                        {new Date(entry.timestamp).toLocaleString("de-AT", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 600 }}>
-                        {formatEuro(entry.result.totalMin)} – {formatEuro(entry.result.totalMax)}
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.7)" }}>
-                        {entry.areas.length} Bereiche
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {submitMessage && <div style={infoBadgeStyle}>{submitMessage}</div>}
         </div>
+      </div>
+
+      <div style={userRequestListStyle}>
+        <h3 style={{ ...sectionTitleStyle, fontSize: "1.05rem" }}>Meine Analyse-Anfragen</h3>
+        {userRequests.length === 0 ? (
+          <div style={summaryCardStyle}>
+            <span style={summaryLabelStyle}>Noch keine Anfragen</span>
+            <span style={summaryValueStyle}>
+              Nachdem du eine Analyse anforderst, erscheint sie hier mit Status-Updates.
+            </span>
+          </div>
+        ) : (
+          <div style={requestTableWrapperStyle}>
+            {userRequests
+              .slice()
+              .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+              .map((req) => (
+                <div key={req.id} style={requestCardStyle}>
+                  <div style={requestCardHeaderStyle}>
+                    <div>
+                      <strong>{req.meta.objectName || "Unbenanntes Objekt"}</strong>
+                      <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.7)" }}>
+                        {new Date(req.createdAt).toLocaleString("de-AT", { dateStyle: "short", timeStyle: "short" })}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        ...statusPillStyle,
+                        backgroundColor: requestStatusColor(req.status),
+                      }}
+                    >
+                      {req.status === "reviewed" ? "Ausgewertet" : "In Prüfung"}
+                    </span>
+                  </div>
+                  {req.status === "reviewed" && req.totalMin !== null && req.totalMax !== null ? (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      <div style={{ fontSize: "0.8rem", color: "rgba(226,232,240,0.7)", marginBottom: "0.35rem" }}>
+                        Ergebnis
+                      </div>
+                      <div style={{ fontWeight: 600 }}>
+                        {formatEuro(req.totalMin)} – {formatEuro(req.totalMax)}
+                      </div>
+                      {req.adminNote && (
+                        <div style={{ fontSize: "0.8rem", color: "rgba(226,232,240,0.85)", marginTop: "0.35rem" }}>
+                          {req.adminNote}
+                        </div>
+                      )}
+                      <div style={renovationBreakdownStyle}>
+                        {req.areas.map((area) => (
+                          <div key={area.id} style={renovationBreakdownRowStyle}>
+                            <div>
+                              <div style={{ fontSize: "0.85rem", color: "#f8fafc" }}>
+                                {RENOVATION_AREA_PRESETS[area.type]?.label || "Bereich"}
+                              </div>
+                              <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.6)" }}>
+                                {area.description || "Keine Beschreibung"}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              {area.estimateMin !== null && area.estimateMax !== null ? (
+                                <div style={{ fontWeight: 600 }}>
+                                  {formatEuro(area.estimateMin)} – {formatEuro(area.estimateMax)}
+                                </div>
+                              ) : (
+                                <div style={{ color: "rgba(226,232,240,0.7)", fontSize: "0.8rem" }}>—</div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.85rem", color: "rgba(226,232,240,0.75)", marginTop: "0.35rem" }}>
+                      Wir prüfen deine Bilder und melden uns mit einer Schätzung.
+                    </div>
+                  )}
+                </div>
+              ))}
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: "0.5rem" }}>
@@ -1721,6 +2096,404 @@ function RenovationCoachTab({ properties }) {
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function createAdminDraft(request) {
+  if (!request) return null;
+  return {
+    status: request.status || "pending",
+    adminNote: request.adminNote || "",
+    totalMin:
+      request.totalMin !== null && request.totalMin !== undefined
+        ? request.totalMin.toString()
+        : "",
+    totalMax:
+      request.totalMax !== null && request.totalMax !== undefined
+        ? request.totalMax.toString()
+        : "",
+    areas: (request.areas || []).map((area, index) => ({
+      id: area.id || `${request.id}-area-${index}`,
+      type: area.type || "other",
+      description: area.description || "",
+      photos: Array.isArray(area.photos) ? area.photos : [],
+      estimateMin:
+        area.estimateMin !== null && area.estimateMin !== undefined
+          ? area.estimateMin.toString()
+          : "",
+      estimateMax:
+        area.estimateMax !== null && area.estimateMax !== undefined
+          ? area.estimateMax.toString()
+          : "",
+    })),
+  };
+}
+
+const parseAmount = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized =
+    typeof value === "string" ? value.replace(",", ".").trim() : value;
+  const num = Number(normalized);
+  return Number.isFinite(num) ? Math.round(num) : null;
+};
+
+const getDistrictLabel = (stateKey, districtValue) => {
+  if (!stateKey || !districtValue) return "—";
+  const state = REGION_DATA[stateKey];
+  if (!state) return "—";
+  const district = state.districts.find((d) => d.value === districtValue);
+  return district ? district.label : "—";
+};
+
+function AdminPanel({ requests = [], onUpdateRequest }) {
+  const sortedRequests = useMemo(
+    () =>
+      requests
+        .slice()
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
+    [requests]
+  );
+  const [selectedId, setSelectedId] = useState(() => sortedRequests[0]?.id || null);
+  const [draft, setDraft] = useState(() => createAdminDraft(sortedRequests[0] || null));
+  const [feedback, setFeedback] = useState("");
+
+  useEffect(() => {
+    if (sortedRequests.length === 0) {
+      setSelectedId(null);
+      setDraft(null);
+      return;
+    }
+    if (!selectedId || !sortedRequests.some((req) => req.id === selectedId)) {
+      const fallbackId = sortedRequests[0].id;
+      setSelectedId(fallbackId);
+      setDraft(createAdminDraft(sortedRequests[0]));
+    }
+  }, [sortedRequests, selectedId]);
+
+  useEffect(() => {
+    const current = sortedRequests.find((req) => req.id === selectedId) || null;
+    setDraft(createAdminDraft(current));
+  }, [selectedId, sortedRequests]);
+
+  const handleAreaEstimateChange = (areaId, field, value) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        areas: prev.areas.map((area) =>
+          area.id === areaId ? { ...area, [field]: value } : area
+        ),
+      };
+    });
+  };
+
+  const handleDraftChange = (field, value) => {
+    setDraft((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleAutoTotals = () => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      let minSum = 0;
+      let maxSum = 0;
+      let hasMin = false;
+      let hasMax = false;
+
+      prev.areas.forEach((area) => {
+        const minVal = parseAmount(area.estimateMin);
+        if (minVal !== null) {
+          minSum += minVal;
+          hasMin = true;
+        }
+        const maxVal = parseAmount(area.estimateMax);
+        if (maxVal !== null) {
+          maxSum += maxVal;
+          hasMax = true;
+        }
+      });
+
+      return {
+        ...prev,
+        totalMin: hasMin ? minSum.toString() : prev.totalMin,
+        totalMax: hasMax ? maxSum.toString() : prev.totalMax,
+      };
+    });
+  };
+
+  const persistDraft = (nextDraft) => {
+    if (!nextDraft || !selectedId || typeof onUpdateRequest !== "function") return;
+    const sanitizedAreas = (nextDraft.areas || []).map((area) => ({
+      ...area,
+      estimateMin: parseAmount(area.estimateMin),
+      estimateMax: parseAmount(area.estimateMax),
+    }));
+    onUpdateRequest(selectedId, {
+      status: nextDraft.status,
+      adminNote: (nextDraft.adminNote || "").trim(),
+      totalMin: parseAmount(nextDraft.totalMin),
+      totalMax: parseAmount(nextDraft.totalMax),
+      areas: sanitizedAreas,
+    });
+    setFeedback("Änderungen gespeichert.");
+    setTimeout(() => setFeedback(""), 2400);
+  };
+
+  const handleSave = () => {
+    if (draft) {
+      persistDraft(draft);
+    }
+  };
+
+  const handleMarkReviewed = () => {
+    if (!draft) return;
+    const nextDraft = { ...draft, status: "reviewed" };
+    setDraft(nextDraft);
+    persistDraft(nextDraft);
+  };
+
+  const selectedRequest = sortedRequests.find((req) => req.id === selectedId) || null;
+  const currentState = selectedRequest ? REGION_DATA[selectedRequest.meta?.state] : null;
+  const requestDistrictLabel = selectedRequest
+    ? getDistrictLabel(selectedRequest.meta?.state, selectedRequest.meta?.district)
+    : "—";
+
+  return (
+    <section style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <h2 style={sectionTitleStyle}>Admin · Renovierungsanfragen</h2>
+      <p style={{ color: "rgba(226,232,240,0.8)", maxWidth: "820px" }}>
+        Prüfe eingereichte Bereiche, ergänze Kostenschätzungen und gib den Status frei. Änderungen werden
+        im Browser gespeichert und stehen nur Administrations-Accounts zur Verfügung.
+      </p>
+
+      {sortedRequests.length === 0 ? (
+        <div style={summaryCardStyle}>
+          <span style={summaryLabelStyle}>Noch keine Anfragen</span>
+          <span style={summaryValueStyle}>
+            Sobald Nutzer Fotos hochladen, erscheinen sie hier zur Auswertung.
+          </span>
+        </div>
+      ) : (
+        <div style={adminPanelGridStyle}>
+          <div style={adminListStyle}>
+            {sortedRequests.map((req) => {
+              const isActive = req.id === selectedId;
+              const statusLabel = REQUEST_STATUS_LABELS[req.status] || req.status || "Offen";
+              return (
+                <button
+                  type="button"
+                  key={req.id}
+                  onClick={() => setSelectedId(req.id)}
+                  style={{
+                    ...adminListItemStyle,
+                    ...(isActive ? adminListItemActiveStyle : {}),
+                  }}
+                >
+                  <div style={adminListItemHeaderStyle}>
+                    <div>
+                      <strong>{req.meta?.objectName || "Unbenanntes Objekt"}</strong>
+                      <div style={smallLabelStyle}>
+                        {new Date(req.createdAt).toLocaleString("de-AT", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        ...statusPillStyle,
+                        backgroundColor: requestStatusColor(req.status),
+                      }}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div style={adminListMetaStyle}>
+                    <span>{REGION_DATA[req.meta?.state]?.label || "—"}</span>
+                    <span>·</span>
+                    <span>{getDistrictLabel(req.meta?.state, req.meta?.district)}</span>
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "rgba(226,232,240,0.7)" }}>
+                    {req.areas?.length || 0} Bereich{(req.areas?.length || 0) === 1 ? "" : "e"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={adminDetailsStyle}>
+            {!selectedRequest || !draft ? (
+              <div style={{ color: "rgba(226,232,240,0.7)" }}>
+                Wähle links eine Anfrage, um Details zu sehen.
+              </div>
+            ) : (
+              <>
+                <div style={adminMetaGridStyle}>
+                  <div style={adminMetaCardStyle}>
+                    <div style={summaryLabelStyle}>Objekt</div>
+                    <div style={summaryValueStyle}>
+                      {selectedRequest.meta?.objectName || "Unbenannt"}
+                    </div>
+                  </div>
+                  <div style={adminMetaCardStyle}>
+                    <div style={summaryLabelStyle}>Nutzer</div>
+                    <div style={summaryValueStyle}>{selectedRequest.userId || "—"}</div>
+                  </div>
+                  <div style={adminMetaCardStyle}>
+                    <div style={summaryLabelStyle}>Ort</div>
+                    <div style={summaryValueStyle}>
+                      {currentState?.label || "—"}
+                      {requestDistrictLabel !== "—" ? ` · ${requestDistrictLabel}` : ""}
+                    </div>
+                  </div>
+                  <div style={adminMetaCardStyle}>
+                    <div style={summaryLabelStyle}>Wohnfläche</div>
+                    <div style={summaryValueStyle}>
+                      {selectedRequest.meta?.totalArea
+                        ? `${selectedRequest.meta.totalArea} m²`
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedRequest.meta?.notes && (
+                  <div style={adminNoteIntroStyle}>
+                    <strong>Notizen</strong>
+                    <p style={{ margin: 0, color: "rgba(226,232,240,0.75)", fontSize: "0.85rem" }}>
+                      {selectedRequest.meta.notes}
+                    </p>
+                  </div>
+                )}
+
+                <div style={adminTotalsGridStyle}>
+                  <div>
+                    <label style={labelStyle}>Gesamt (min)</label>
+                    <input
+                      type="number"
+                      value={draft.totalMin}
+                      onChange={(e) => handleDraftChange("totalMin", e.target.value)}
+                      placeholder="z.B. 12000"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Gesamt (max)</label>
+                    <input
+                      type="number"
+                      value={draft.totalMax}
+                      onChange={(e) => handleDraftChange("totalMax", e.target.value)}
+                      placeholder="z.B. 18000"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Status</label>
+                    <select
+                      value={draft.status}
+                      onChange={(e) => handleDraftChange("status", e.target.value)}
+                      style={selectStyle}
+                    >
+                      <option value="pending">{REQUEST_STATUS_LABELS.pending}</option>
+                      <option value="in_progress">{REQUEST_STATUS_LABELS.in_progress}</option>
+                      <option value="reviewed">{REQUEST_STATUS_LABELS.reviewed}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="input-stack">
+                  <label style={labelStyle}>Admin-Notiz</label>
+                  <textarea
+                    value={draft.adminNote}
+                    onChange={(e) => handleDraftChange("adminNote", e.target.value)}
+                    placeholder="z.B. Angebot anfordern oder genaue Maße prüfen"
+                    style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
+                  />
+                </div>
+
+                <div style={adminActionsStyle}>
+                  <button type="button" style={secondaryButtonStyle} onClick={handleAutoTotals}>
+                    Gesamt aus Bereichen berechnen
+                  </button>
+                  <button type="button" style={secondaryButtonStyle} onClick={handleSave}>
+                    Änderungen speichern
+                  </button>
+                  <button type="button" style={primaryButtonStyle} onClick={handleMarkReviewed}>
+                    Speichern & freigeben
+                  </button>
+                </div>
+                {feedback && <div style={{ color: "#22c55e", fontSize: "0.85rem" }}>{feedback}</div>}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  <h3 style={{ ...sectionTitleStyle, fontSize: "1rem" }}>Bereiche</h3>
+                  {draft.areas.length === 0 ? (
+                    <p style={{ color: "rgba(226,232,240,0.75)", fontSize: "0.85rem" }}>
+                      Keine Bereiche vorhanden.
+                    </p>
+                  ) : (
+                    draft.areas.map((area) => {
+                      const preset = RENOVATION_AREA_PRESETS[area.type] || RENOVATION_AREA_PRESETS.other;
+                      return (
+                        <div key={area.id} style={adminAreaCardStyle}>
+                          <div style={renovationAreaHeaderStyle}>
+                            <div>
+                              <strong>{preset.label}</strong>
+                              <div style={smallLabelStyle}>
+                                {area.description || "Keine Beschreibung"}
+                              </div>
+                            </div>
+                            <span style={{ ...smallLabelStyle, fontSize: "0.75rem" }}>
+                              {area.photos?.length || 0} Foto{(area.photos?.length || 0) === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <div style={adminAreaInputsStyle}>
+                            <div>
+                              <label style={smallLabelStyle}>Min (€)</label>
+                              <input
+                                type="number"
+                                value={area.estimateMin}
+                                onChange={(e) =>
+                                  handleAreaEstimateChange(area.id, "estimateMin", e.target.value)
+                                }
+                                placeholder="z.B. 6500"
+                                style={inputStyle}
+                              />
+                            </div>
+                            <div>
+                              <label style={smallLabelStyle}>Max (€)</label>
+                              <input
+                                type="number"
+                                value={area.estimateMax}
+                                onChange={(e) =>
+                                  handleAreaEstimateChange(area.id, "estimateMax", e.target.value)
+                                }
+                                placeholder="z.B. 9800"
+                                style={inputStyle}
+                              />
+                            </div>
+                          </div>
+                          {area.photos && area.photos.length > 0 && (
+                            <div style={adminPhotosGridStyle}>
+                              {area.photos.map((photo, idx) => {
+                                const metaPhoto = toPhotoObject(photo);
+                                if (!metaPhoto.src) return null;
+                                return (
+                                  <div key={`${area.id}-photo-${idx}`} style={adminPhotoThumbStyle}>
+                                    <img src={metaPhoto.src} alt={preset.label} style={adminPhotoImgStyle} />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1832,22 +2605,25 @@ function ValuationCharts({ properties }) {
   );
 }
 
-function RegistrationScreen({ onRegister }) {
+function RegistrationScreen({ onRegister, onSwitchToLogin }) {
   const [form, setForm] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     company: "",
     email: "",
     password: "",
     consent: false,
   });
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isSubmitting) return;
     if (!form.email.trim() || !form.password.trim()) {
       setError("Bitte gib mindestens E-Mail und Passwort ein.");
       return;
@@ -1861,12 +2637,23 @@ function RegistrationScreen({ onRegister }) {
       return;
     }
     setError("");
-    onRegister({
-      name: form.name.trim(),
-      company: form.company.trim(),
-      email: form.email.trim(),
-      createdAt: new Date().toISOString(),
-    });
+    setIsSubmitting(true);
+    try {
+      const result = await onRegister({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        company: form.company,
+        email: form.email,
+        password: form.password,
+      });
+      if (!result.ok) {
+        setError(result.error || "Registrierung fehlgeschlagen.");
+        return;
+      }
+      setError("");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1881,16 +2668,29 @@ function RegistrationScreen({ onRegister }) {
         </div>
         <form onSubmit={handleSubmit} style={registerFormStyle}>
           <div className="input-stack">
-            <label style={labelStyle} htmlFor="reg-name">
-              Name (optional)
+            <label style={labelStyle} htmlFor="reg-first">
+              Vorname
             </label>
             <input
-              id="reg-name"
+              id="reg-first"
               className="aim-input"
               type="text"
-              value={form.name}
-              onChange={(e) => handleChange("name", e.target.value)}
-              placeholder="z.B. Anna Mustermann"
+              value={form.firstName}
+              onChange={(e) => handleChange("firstName", e.target.value)}
+              placeholder="z.B. Anna"
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="reg-last">
+              Nachname
+            </label>
+            <input
+              id="reg-last"
+              className="aim-input"
+              type="text"
+              value={form.lastName}
+              onChange={(e) => handleChange("lastName", e.target.value)}
+              placeholder="z.B. Mustermann"
             />
           </div>
           <div className="input-stack">
@@ -1943,10 +2743,22 @@ function RegistrationScreen({ onRegister }) {
             Ich stimme den Nutzungsbedingungen und der Datenschutzerklärung zu.
           </label>
           {error && <div style={errorBadgeStyle}>{error}</div>}
-          <button type="submit" style={primaryButtonStyle}>
+          <button
+            type="submit"
+            style={{ ...primaryButtonStyle, opacity: isSubmitting ? 0.7 : 1 }}
+            disabled={isSubmitting}
+          >
             Registrieren und loslegen
           </button>
         </form>
+        <div style={authSwitchStyle}>
+          <span>
+            Schon registriert?{" "}
+            <button type="button" style={linkButtonStyle} onClick={onSwitchToLogin}>
+              Anmelden
+            </button>
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -1981,7 +2793,9 @@ function VerificationScreen({ draft, code, onVerify, onResend, onCancel }) {
           </p>
           <div style={mockMailStyle}>
             <div style={{ fontWeight: 600, marginBottom: "0.35rem" }}>Simulierte E-Mail</div>
-            <div style={{ fontSize: "0.9rem" }}>Hallo {draft.name || "AIM Nutzer"},</div>
+            <div style={{ fontSize: "0.9rem" }}>
+              Hallo {draft.firstName || draft.email || "AIM Nutzer"},
+            </div>
             <div style={{ fontSize: "0.9rem" }}>
               dein Verifizierungscode lautet <strong>{code}</strong>.
             </div>
@@ -2019,6 +2833,229 @@ function VerificationScreen({ draft, code, onVerify, onResend, onCancel }) {
             </button>
             <button type="button" style={ghostButtonStyle} onClick={onCancel}>
               Zur Registrierung
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin, onSwitchToRegister, onForgotPassword }) {
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const result = await onLogin(form);
+      if (!result.ok) {
+        setError(result.error || "Anmeldung fehlgeschlagen.");
+        return;
+      }
+      setError("");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={pageStyle} className="app-page">
+      <div style={registerCardStyle}>
+        <div>
+          <h1 style={{ ...titleStyle, fontSize: "2rem" }}>Willkommen zurück</h1>
+          <p style={{ color: "rgba(226,232,240,0.8)", marginBottom: "1.5rem" }}>
+            Melde dich mit deiner E-Mail an, um deine Analysen zu sehen.
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} style={registerFormStyle}>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="login-email">
+              E-Mail-Adresse
+            </label>
+            <input
+              id="login-email"
+              className="aim-input"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+              placeholder="du@example.com"
+              required
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="login-password">
+              Passwort
+            </label>
+            <input
+              id="login-password"
+              className="aim-input"
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+              placeholder="••••••"
+              required
+            />
+          </div>
+          {error && <div style={errorBadgeStyle}>{error}</div>}
+          <button
+            type="submit"
+            style={{ ...primaryButtonStyle, opacity: isSubmitting ? 0.7 : 1 }}
+            disabled={isSubmitting}
+          >
+            Anmelden
+          </button>
+        </form>
+        <div style={authSwitchStyle}>
+          <button type="button" style={linkButtonStyle} onClick={onForgotPassword}>
+            Passwort vergessen?
+          </button>
+          <span>
+            Kein Konto?{" "}
+            <button type="button" style={linkButtonStyle} onClick={onSwitchToRegister}>
+              Registrieren
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PasswordResetRequest({ onRequest, onBack }) {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const result = await onRequest(email);
+      if (!result.ok) {
+        setError(result.error || "Fehler beim Zurücksetzen.");
+        return;
+      }
+      setError("");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={pageStyle} className="app-page">
+      <div style={registerCardStyle}>
+        <div>
+          <h1 style={{ ...titleStyle, fontSize: "2rem" }}>Passwort zurücksetzen</h1>
+          <p style={{ color: "rgba(226,232,240,0.8)", marginBottom: "1.5rem" }}>
+            Gib deine E-Mail ein. Wir senden dir einen Code zum Zurücksetzen (Simulation).
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} style={registerFormStyle}>
+          <div className="input-stack">
+            <label style={labelStyle} htmlFor="reset-email">
+              E-Mail-Adresse
+            </label>
+            <input
+              id="reset-email"
+              className="aim-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="du@example.com"
+              required
+            />
+          </div>
+          {error && <div style={errorBadgeStyle}>{error}</div>}
+          <button
+            type="submit"
+            style={{ ...primaryButtonStyle, opacity: isSubmitting ? 0.7 : 1 }}
+            disabled={isSubmitting}
+          >
+            Code anfordern
+          </button>
+        </form>
+        <button type="button" style={linkButtonStyle} onClick={onBack}>
+          Zurück zur Anmeldung
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PasswordResetVerify({ draft, code, onSubmit, onCancel }) {
+  const [inputCode, setInputCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+    if (password.length < 6) {
+      setError("Passwort muss mindestens 6 Zeichen haben.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const result = await onSubmit({ code: inputCode.trim(), password });
+      if (!result.ok) {
+        setError(result.error || "Zurücksetzen fehlgeschlagen.");
+        return;
+      }
+      setError("");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={pageStyle} className="app-page">
+      <div style={registerCardStyle}>
+        <div>
+          <h1 style={{ ...titleStyle, fontSize: "2rem" }}>Code eingeben</h1>
+          <p style={{ color: "rgba(226,232,240,0.8)", marginBottom: "1.2rem" }}>
+            Wir haben einen Code an <strong>{draft.email}</strong> gesendet. (Demo-Code:{" "}
+            <strong>{code}</strong>)
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} style={registerFormStyle}>
+          <div className="input-stack">
+            <label style={labelStyle}>Bestätigungscode</label>
+            <input
+              className="aim-input"
+              type="text"
+              value={inputCode}
+              onChange={(e) => setInputCode(e.target.value)}
+              placeholder="Code"
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle}>Neues Passwort</label>
+            <input
+              className="aim-input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="mind. 6 Zeichen"
+            />
+          </div>
+          {error && <div style={errorBadgeStyle}>{error}</div>}
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+            <button
+              type="submit"
+              style={{ ...primaryButtonStyle, opacity: isSubmitting ? 0.7 : 1 }}
+              disabled={isSubmitting}
+            >
+              Passwort speichern
+            </button>
+            <button type="button" style={ghostButtonStyle} onClick={onCancel}>
+              Abbrechen
             </button>
           </div>
         </form>
@@ -2071,7 +3108,14 @@ function InfoTab({ onStart, userName }) {
         </ul>
         <button
           type="button"
-          style={primaryButtonStyle}
+          style={{
+            ...primaryButtonStyle,
+            alignSelf: "flex-start",
+            flex: "0 0 auto",
+            padding: "0.75rem 1.5rem",
+            fontSize: "1rem",
+            minWidth: "auto",
+          }}
           onClick={() => {
             if (typeof onStart === "function") {
               onStart();
@@ -2196,50 +3240,6 @@ const runMarketAnalysis = (inputs = {}) => {
       minPrice: state.minPrice || null,
       maxPrice: state.maxPrice || null,
     },
-  };
-};
-
-const estimateRenovationFromAreas = (meta, areas) => {
-  if (!areas || areas.length === 0) return null;
-
-  const stateData = REGION_DATA[meta.state] || REGION_DATA.wien;
-  const district = stateData.districts.find((d) => d.value === meta.district) || null;
-  const referenceAvg = REGION_DATA.wien.averagePrice || 5200;
-  const regionFactor =
-    stateData && stateData.averagePrice ? stateData.averagePrice / referenceAvg : 1;
-  const totalArea = Number(meta.totalArea);
-  const areaFactor =
-    Number.isFinite(totalArea) && totalArea > 0
-      ? Math.min(1.5, Math.max(0.7, totalArea / 75))
-      : 1;
-
-  let totalMin = 0;
-  let totalMax = 0;
-  const breakdown = areas.map((area) => {
-    const preset = RENOVATION_AREA_PRESETS[area.type] || RENOVATION_AREA_PRESETS.other;
-    const photoFactor = 1 + Math.min(area.photos.length, 3) * 0.05;
-    const min = preset.min * areaFactor * regionFactor * photoFactor;
-    const max = preset.max * areaFactor * regionFactor * photoFactor;
-    totalMin += min;
-    totalMax += max;
-    return {
-      id: area.id,
-      label: preset.label,
-      description: area.description || "",
-      min,
-      max,
-      photoCount: area.photos.length,
-    };
-  });
-
-  return {
-    totalMin,
-    totalMax,
-    breakdown,
-    objectName: meta.objectName || "",
-    stateLabel: stateData.label,
-    districtLabel: district ? district.label : "",
-    note: meta.notes?.trim() || "",
   };
 };
 
@@ -3203,6 +4203,23 @@ function formatStrategy(strategy) {
   }
 }
 
+const requestStatusColor = (status) => {
+  switch (status) {
+    case "reviewed":
+      return "rgba(34,197,94,0.25)";
+    case "in_progress":
+      return "rgba(251,191,36,0.25)";
+    default:
+      return "rgba(148,163,184,0.25)";
+  }
+};
+
+const REQUEST_STATUS_LABELS = {
+  pending: "Offen",
+  in_progress: "In Prüfung",
+  reviewed: "Ausgewertet",
+};
+
 function valuationScenarios(results) {
   if (!results) {
     return [
@@ -3236,7 +4253,8 @@ function valuationScenarios(results) {
 
 function ProfileSection({ userProfile, onUpdateProfile, onExportJson }) {
   const [form, setForm] = useState({
-    name: userProfile?.name || "",
+    firstName: userProfile?.firstName || "",
+    lastName: userProfile?.lastName || "",
     company: userProfile?.company || "",
     email: userProfile?.email || "",
     password: "",
@@ -3245,7 +4263,8 @@ function ProfileSection({ userProfile, onUpdateProfile, onExportJson }) {
 
   useEffect(() => {
     setForm({
-      name: userProfile?.name || "",
+      firstName: userProfile?.firstName || "",
+      lastName: userProfile?.lastName || "",
       company: userProfile?.company || "",
       email: userProfile?.email || "",
       password: "",
@@ -3259,7 +4278,8 @@ function ProfileSection({ userProfile, onUpdateProfile, onExportJson }) {
   const handleSave = (event) => {
     event.preventDefault();
     onUpdateProfile({
-      name: form.name.trim(),
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
       company: form.company.trim(),
       email: form.email.trim(),
     });
@@ -3282,15 +4302,27 @@ function ProfileSection({ userProfile, onUpdateProfile, onExportJson }) {
       </div>
 
       <form onSubmit={handleSave} style={profileFormStyle}>
-        <div className="input-stack">
-          <label style={labelStyle}>Name</label>
-          <input
-            type="text"
-            value={form.name}
-            onChange={(e) => handleChange("name", e.target.value)}
-            placeholder="z.B. Anna Beispiel"
-            style={inputStyle}
-          />
+        <div style={analysisFormGridStyle}>
+          <div className="input-stack">
+            <label style={labelStyle}>Vorname</label>
+            <input
+              type="text"
+              value={form.firstName}
+              onChange={(e) => handleChange("firstName", e.target.value)}
+              placeholder="z.B. Anna"
+              style={inputStyle}
+            />
+          </div>
+          <div className="input-stack">
+            <label style={labelStyle}>Nachname</label>
+            <input
+              type="text"
+              value={form.lastName}
+              onChange={(e) => handleChange("lastName", e.target.value)}
+              placeholder="z.B. Beispiel"
+              style={inputStyle}
+            />
+          </div>
         </div>
         <div className="input-stack">
           <label style={labelStyle}>Firma (optional)</label>
@@ -3456,6 +4488,15 @@ const errorBadgeStyle = {
   fontSize: "0.85rem",
 };
 
+const authSwitchStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.35rem",
+  marginTop: "0.75rem",
+  fontSize: "0.85rem",
+  color: "rgba(226,232,240,0.8)",
+};
+
 const mockMailStyle = {
   borderRadius: "14px",
   border: "1px solid rgba(148,163,184,0.3)",
@@ -3526,6 +4567,21 @@ const badgeStyle = {
   backgroundColor: "rgba(96, 165, 250, 0.15)",
   color: "#93c5fd",
   fontWeight: 500,
+};
+
+const floatingLogoutStyle = {
+  position: "fixed",
+  right: "1.2rem",
+  bottom: "1.2rem",
+  padding: "0.55rem 1.1rem",
+  borderRadius: "999px",
+  border: "1px solid rgba(148,163,184,0.35)",
+  background: "rgba(15,23,42,0.9)",
+  color: "#e2e8f0",
+  fontSize: "0.9rem",
+  cursor: "pointer",
+  boxShadow: "0 14px 30px rgba(0,0,0,0.35)",
+  zIndex: 50,
 };
 
 const linkButtonStyle = {
@@ -4345,6 +5401,175 @@ const renovationEmptyStateStyle = {
 
 const renovationEmptyIconStyle = {
   fontSize: "1.6rem",
+};
+
+const userRequestListStyle = {
+  marginTop: "0.5rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+};
+
+const requestTableWrapperStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.75rem",
+};
+
+const requestCardStyle = {
+  borderRadius: "14px",
+  border: "1px solid rgba(148,163,184,0.3)",
+  padding: "0.9rem 1rem",
+  backgroundColor: "rgba(15,23,42,0.45)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.4rem",
+};
+
+const requestCardHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.7rem",
+  flexWrap: "wrap",
+};
+
+const adminPanelGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "minmax(260px, 320px) minmax(0, 1fr)",
+  gap: "1rem",
+  alignItems: "flex-start",
+};
+
+const adminListStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148,163,184,0.3)",
+  backgroundColor: "rgba(15,23,42,0.55)",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const adminListItemStyle = {
+  padding: "0.85rem 1rem",
+  border: "none",
+  background: "transparent",
+  textAlign: "left",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.35rem",
+  borderBottom: "1px solid rgba(148,163,184,0.2)",
+  cursor: "pointer",
+  color: "#f8fafc",
+};
+
+const adminListItemActiveStyle = {
+  backgroundColor: "rgba(37,99,235,0.25)",
+};
+
+const adminListItemHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "0.6rem",
+};
+
+const adminListMetaStyle = {
+  display: "flex",
+  gap: "0.35rem",
+  fontSize: "0.78rem",
+  color: "rgba(226,232,240,0.75)",
+};
+
+const adminDetailsStyle = {
+  borderRadius: "16px",
+  border: "1px solid rgba(148,163,184,0.35)",
+  backgroundColor: "rgba(15,23,42,0.55)",
+  padding: "1.2rem",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.9rem",
+};
+
+const adminMetaGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "0.65rem",
+};
+
+const adminMetaCardStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(148,163,184,0.25)",
+  padding: "0.75rem",
+  backgroundColor: "rgba(15,23,42,0.4)",
+};
+
+const adminNoteIntroStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(148,163,184,0.25)",
+  padding: "0.75rem",
+  backgroundColor: "rgba(15,23,42,0.4)",
+};
+
+const adminTotalsGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "0.65rem",
+};
+
+const adminActionsStyle = {
+  display: "flex",
+  gap: "0.6rem",
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const adminAreaCardStyle = {
+  borderRadius: "12px",
+  border: "1px solid rgba(148,163,184,0.25)",
+  padding: "0.75rem",
+  backgroundColor: "rgba(15,23,42,0.4)",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.55rem",
+};
+
+const adminAreaInputsStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "0.5rem",
+};
+
+const adminPhotosGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(70px, 1fr))",
+  gap: "0.35rem",
+};
+
+const adminPhotoThumbStyle = {
+  borderRadius: "10px",
+  overflow: "hidden",
+  border: "1px solid rgba(148,163,184,0.3)",
+  backgroundColor: "rgba(15,23,42,0.35)",
+  width: "100%",
+  paddingBottom: "100%",
+  position: "relative",
+};
+
+const adminPhotoImgStyle = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+};
+
+const statusPillStyle = {
+  borderRadius: "999px",
+  padding: "0.2rem 0.8rem",
+  fontSize: "0.8rem",
+  color: "#0f172a",
+  fontWeight: 600,
 };
 
 const profileHeaderStyle = {
