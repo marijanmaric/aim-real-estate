@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Privacy from "./pages/Privacy";
 import aimLogo from "./assets/aim-logo.svg";
 import PortfolioStrip from "./components/PortfolioStrip";
 import * as backend from "./services/backend";
