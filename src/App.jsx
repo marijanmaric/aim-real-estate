@@ -283,6 +283,18 @@ function App() {
     } catch {
       return null;
     }
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<div>Home</div>} />
+        <Route path="/privacy" element={<Privacy />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+
   });
   const [properties, setProperties] = useState([]);
   const [results, setResults] = useState(null);
